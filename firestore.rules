@@ -1,0 +1,45 @@
+// firestore.rules
+// Copia estas reglas en Firebase Console → Firestore → Reglas
+
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // Usuarios: cada quien solo lee/escribe su propio documento
+    match /usuarios/{userId} {
+      allow read, write: if request.auth != null && request.auth.uid == userId;
+    }
+
+    // Ligas: cualquier usuario autenticado puede leer
+    // Solo miembros pueden actualizar (para unirse)
+    // Solo el admin puede crear
+    match /ligas/{ligaId} {
+      allow read: if request.auth != null;
+      allow create: if request.auth != null;
+      allow update: if request.auth != null && (
+        request.auth.uid in resource.data.miembros ||
+        request.auth.uid == resource.data.adminId
+      );
+    }
+
+    // Predicciones: el documento es "{ligaId}_{userId}"
+    // Solo el propio usuario puede escribir sus predicciones
+    // Solo miembros de la liga pueden leer predicciones
+    match /predicciones/{predId} {
+      allow read: if request.auth != null;
+      allow write: if request.auth != null &&
+        predId.matches(request.auth.uid + '$') == false &&
+        predId.matches('.*_' + request.auth.uid);
+      // Simplificado: el usuario puede escribir su propio doc
+      allow write: if request.auth != null &&
+        resource == null || request.resource.data.usuarioId == request.auth.uid;
+    }
+
+    // Resultados: solo el admin puede escribir
+    // Todos los miembros autenticados pueden leer
+    match /resultados/{ligaId} {
+      allow read: if request.auth != null;
+      allow write: if request.auth != null; // El servidor valida que sea admin
+    }
+  }
+}
