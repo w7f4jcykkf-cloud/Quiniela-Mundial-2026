@@ -12,12 +12,13 @@ import {
 // ─── CONFIGURACIÓN FIREBASE ───────────────────────────────────────────
 // Reemplaza estos valores con los de tu proyecto Firebase
 const firebaseConfig = {
-  apiKey: "TU_API_KEY",
-  authDomain: "TU_AUTH_DOMAIN",
-  projectId: "TU_PROJECT_ID",
-  storageBucket: "TU_STORAGE_BUCKET",
-  messagingSenderId: "TU_MESSAGING_SENDER_ID",
-  appId: "TU_APP_ID"
+  apiKey: "AIzaSyDjhWz5x74kjOf3EKyf_MHX66Tc7UCd_PM",
+  authDomain: "quiniela-mundial-2026-eb9a4.firebaseapp.com",
+  projectId: "quiniela-mundial-2026-eb9a4",
+  storageBucket: "quiniela-mundial-2026-eb9a4.firebasestorage.app",
+  messagingSenderId: "641374842959",
+  appId: "1:641374842959:web:f56dc93021e6b0bb9fba3a",
+  measurementId: "G-Z95P6WVPR1"
 };
 
 const app = initializeApp(firebaseConfig);
