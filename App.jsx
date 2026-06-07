@@ -32,7 +32,7 @@ const googleProvider = new GoogleAuthProvider();
 // Cómo obtenerlo: entra a la app → Firebase Console →
 // Authentication → Users → copia tu User UID
 // ════════════════════════════════════════════════════════════════
-const SUPER_ADMIN_UID = "TU_UID_AQUI";
+const SUPER_ADMIN_UID = pvWj7wgncfPJIThwFlxaE1B8zS33;
 
 // ════════════════════════════════════════════════════════════════
 // DATOS DEL MUNDIAL 2026
