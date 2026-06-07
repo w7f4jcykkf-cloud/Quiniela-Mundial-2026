@@ -2,1116 +2,878 @@ import { useState, useEffect, useCallback } from "react";
 import { initializeApp } from "firebase/app";
 import {
   getFirestore, doc, setDoc, getDoc, collection,
-  query, where, onSnapshot, updateDoc, serverTimestamp,
-  getDocs, orderBy, arrayUnion, increment
+  query, where, onSnapshot, serverTimestamp, getDocs, arrayUnion
 } from "firebase/firestore";
 import {
-  getAuth, GoogleAuthProvider, signInWithPopup, signOut, onAuthStateChanged
+  getAuth, GoogleAuthProvider, signInWithPopup, signOut, onAuthStateChanged,
+  createUserWithEmailAndPassword, signInWithEmailAndPassword,
+  updateProfile, sendPasswordResetEmail
 } from "firebase/auth";
 
-// ─── CONFIGURACIÓN FIREBASE ───────────────────────────────────────────
-// Reemplaza estos valores con los de tu proyecto Firebase
+// ════════════════════════════════════════════════════════════════
+// CONFIGURACIÓN FIREBASE — reemplaza con los valores de tu proyecto
+// ════════════════════════════════════════════════════════════════
 const firebaseConfig = {
   apiKey: "AIzaSyDjhWz5x74kjOf3EKyf_MHX66Tc7UCd_PM",
   authDomain: "quiniela-mundial-2026-eb9a4.firebaseapp.com",
   projectId: "quiniela-mundial-2026-eb9a4",
   storageBucket: "quiniela-mundial-2026-eb9a4.firebasestorage.app",
   messagingSenderId: "641374842959",
-  appId: "1:641374842959:web:f56dc93021e6b0bb9fba3a",
-  measurementId: "G-Z95P6WVPR1"
+  appId: "1:641374842959:web:f56dc93021e6b0bb9fba3a"
 };
 
-const app = initializeApp(firebaseConfig);
-const db = getFirestore(app);
+const app  = initializeApp(firebaseConfig);
+const db   = getFirestore(app);
 const auth = getAuth(app);
 const googleProvider = new GoogleAuthProvider();
 
-// ─── DATOS MUNDIAL 2026 (48 equipos, 12 grupos) ──────────────────────
+// ════════════════════════════════════════════════════════════════
+// SUPER ADMIN — solo este UID puede crear ligas
+// Cómo obtenerlo: entra a la app → Firebase Console →
+// Authentication → Users → copia tu User UID
+// ════════════════════════════════════════════════════════════════
+const SUPER_ADMIN_UID = "TU_UID_AQUI";
+
+// ════════════════════════════════════════════════════════════════
+// DATOS DEL MUNDIAL 2026
+// ════════════════════════════════════════════════════════════════
 const GRUPOS = {
-  A: ["Estados Unidos", "México", "Canadá", "Nueva Zelanda"],
-  B: ["Argentina", "Chile", "Perú", "Australia"],
-  C: ["Brasil", "Colombia", "Ecuador", "Japón"],
-  D: ["Francia", "Bélgica", "Marruecos", "Arabia Saudita"],
-  E: ["España", "Portugal", "Croacia", "Turquía"],
-  F: ["Alemania", "Países Bajos", "Dinamarca", "Senegal"],
-  G: ["Inglaterra", "Polonia", "Ucrania", "Irán"],
-  H: ["Uruguay", "Costa Rica", "Panamá", "Camerún"],
-  I: ["Suiza", "República Checa", "Escocia", "Guinea"],
-  J: ["Italia", "Austria", "Hungría", "Argelia"],
-  K: ["México (2)", "Venezuela", "Bolivia", "Nigeria"],
-  L: ["Corea del Sur", "Japón (2)", "Costa de Marfil", "Serbia"]
+  A: ["Estados Unidos","México","Canadá","Nueva Zelanda"],
+  B: ["Argentina","Chile","Perú","Australia"],
+  C: ["Brasil","Colombia","Ecuador","Japón"],
+  D: ["Francia","Bélgica","Marruecos","Arabia Saudita"],
+  E: ["España","Portugal","Croacia","Turquía"],
+  F: ["Alemania","Países Bajos","Dinamarca","Senegal"],
+  G: ["Inglaterra","Polonia","Ucrania","Irán"],
+  H: ["Uruguay","Costa Rica","Panamá","Camerún"],
+  I: ["Suiza","República Checa","Escocia","Guinea"],
+  J: ["Italia","Austria","Hungría","Argelia"],
+  K: ["Venezuela","Bolivia","Nigeria","Qatar"],
+  L: ["Corea del Sur","Costa de Marfil","Serbia","Rumania"]
 };
 
-// Partidos de la fase de grupos con fechas reales aproximadas del Mundial 2026
-const PARTIDOS_GRUPOS = [
-  // Grupo A
-  { id: "A1", grupo: "A", local: "México", visitante: "Canadá", fecha: "2026-06-11T20:00:00-05:00", estadio: "Los Ángeles" },
-  { id: "A2", grupo: "A", local: "Estados Unidos", visitante: "Nueva Zelanda", fecha: "2026-06-12T14:00:00-05:00", estadio: "Nueva York" },
-  { id: "A3", grupo: "A", local: "México", visitante: "Nueva Zelanda", fecha: "2026-06-16T14:00:00-05:00", estadio: "Dallas" },
-  { id: "A4", grupo: "A", local: "Canadá", visitante: "Estados Unidos", fecha: "2026-06-16T20:00:00-05:00", estadio: "Toronto" },
-  { id: "A5", grupo: "A", local: "Canadá", visitante: "Nueva Zelanda", fecha: "2026-06-20T14:00:00-05:00", estadio: "Vancouver" },
-  { id: "A6", grupo: "A", local: "Estados Unidos", visitante: "México", fecha: "2026-06-20T20:00:00-05:00", estadio: "Dallas" },
-  // Grupo B
-  { id: "B1", grupo: "B", local: "Argentina", visitante: "Chile", fecha: "2026-06-12T17:00:00-05:00", estadio: "Miami" },
-  { id: "B2", grupo: "B", local: "Perú", visitante: "Australia", fecha: "2026-06-12T20:00:00-05:00", estadio: "Chicago" },
-  { id: "B3", grupo: "B", local: "Argentina", visitante: "Australia", fecha: "2026-06-17T14:00:00-05:00", estadio: "Houston" },
-  { id: "B4", grupo: "B", local: "Chile", visitante: "Perú", fecha: "2026-06-17T20:00:00-05:00", estadio: "Seattle" },
-  { id: "B5", grupo: "B", local: "Chile", visitante: "Australia", fecha: "2026-06-21T14:00:00-05:00", estadio: "Seattle" },
-  { id: "B6", grupo: "B", local: "Argentina", visitante: "Perú", fecha: "2026-06-21T20:00:00-05:00", estadio: "Miami" },
-  // Grupo C
-  { id: "C1", grupo: "C", local: "Brasil", visitante: "Colombia", fecha: "2026-06-13T14:00:00-05:00", estadio: "Nueva York" },
-  { id: "C2", grupo: "C", local: "Ecuador", visitante: "Japón", fecha: "2026-06-13T20:00:00-05:00", estadio: "Los Ángeles" },
-  { id: "C3", grupo: "C", local: "Brasil", visitante: "Japón", fecha: "2026-06-18T14:00:00-05:00", estadio: "Dallas" },
-  { id: "C4", grupo: "C", local: "Colombia", visitante: "Ecuador", fecha: "2026-06-18T20:00:00-05:00", estadio: "Houston" },
-  { id: "C5", grupo: "C", local: "Colombia", visitante: "Japón", fecha: "2026-06-22T14:00:00-05:00", estadio: "Chicago" },
-  { id: "C6", grupo: "C", local: "Brasil", visitante: "Ecuador", fecha: "2026-06-22T20:00:00-05:00", estadio: "Nueva York" },
-  // Grupo D
-  { id: "D1", grupo: "D", local: "Francia", visitante: "Bélgica", fecha: "2026-06-13T17:00:00-05:00", estadio: "Los Ángeles" },
-  { id: "D2", grupo: "D", local: "Marruecos", visitante: "Arabia Saudita", fecha: "2026-06-14T14:00:00-05:00", estadio: "Miami" },
-  { id: "D3", grupo: "D", local: "Francia", visitante: "Arabia Saudita", fecha: "2026-06-19T14:00:00-05:00", estadio: "Seattle" },
-  { id: "D4", grupo: "D", local: "Bélgica", visitante: "Marruecos", fecha: "2026-06-19T20:00:00-05:00", estadio: "Dallas" },
-  { id: "D5", grupo: "D", local: "Bélgica", visitante: "Arabia Saudita", fecha: "2026-06-23T14:00:00-05:00", estadio: "Houston" },
-  { id: "D6", grupo: "D", local: "Francia", visitante: "Marruecos", fecha: "2026-06-23T20:00:00-05:00", estadio: "Los Ángeles" },
-  // Grupo E
-  { id: "E1", grupo: "E", local: "España", visitante: "Portugal", fecha: "2026-06-14T17:00:00-05:00", estadio: "Nueva York" },
-  { id: "E2", grupo: "E", local: "Croacia", visitante: "Turquía", fecha: "2026-06-14T20:00:00-05:00", estadio: "Seattle" },
-  { id: "E3", grupo: "E", local: "España", visitante: "Turquía", fecha: "2026-06-20T14:00:00-05:00", estadio: "Miami" },
-  { id: "E4", grupo: "E", local: "Portugal", visitante: "Croacia", fecha: "2026-06-20T20:00:00-05:00", estadio: "Chicago" },
-  { id: "E5", grupo: "E", local: "Portugal", visitante: "Turquía", fecha: "2026-06-24T14:00:00-05:00", estadio: "Los Ángeles" },
-  { id: "E6", grupo: "E", local: "España", visitante: "Croacia", fecha: "2026-06-24T20:00:00-05:00", estadio: "Nueva York" },
-  // Grupo F
-  { id: "F1", grupo: "F", local: "Alemania", visitante: "Países Bajos", fecha: "2026-06-15T14:00:00-05:00", estadio: "Dallas" },
-  { id: "F2", grupo: "F", local: "Dinamarca", visitante: "Senegal", fecha: "2026-06-15T20:00:00-05:00", estadio: "Houston" },
-  { id: "F3", grupo: "F", local: "Alemania", visitante: "Senegal", fecha: "2026-06-21T14:00:00-05:00", estadio: "Vancouver" },
-  { id: "F4", grupo: "F", local: "Países Bajos", visitante: "Dinamarca", fecha: "2026-06-21T20:00:00-05:00", estadio: "Los Ángeles" },
-  { id: "F5", grupo: "F", local: "Países Bajos", visitante: "Senegal", fecha: "2026-06-25T14:00:00-05:00", estadio: "Dallas" },
-  { id: "F6", grupo: "F", local: "Alemania", visitante: "Dinamarca", fecha: "2026-06-25T20:00:00-05:00", estadio: "Chicago" },
-  // Grupo G
-  { id: "G1", grupo: "G", local: "Inglaterra", visitante: "Polonia", fecha: "2026-06-15T17:00:00-05:00", estadio: "Nueva York" },
-  { id: "G2", grupo: "G", local: "Ucrania", visitante: "Irán", fecha: "2026-06-16T14:00:00-05:00", estadio: "Miami" },
-  { id: "G3", grupo: "G", local: "Inglaterra", visitante: "Irán", fecha: "2026-06-22T14:00:00-05:00", estadio: "Houston" },
-  { id: "G4", grupo: "G", local: "Polonia", visitante: "Ucrania", fecha: "2026-06-22T20:00:00-05:00", estadio: "Seattle" },
-  { id: "G5", grupo: "G", local: "Polonia", visitante: "Irán", fecha: "2026-06-26T14:00:00-05:00", estadio: "Dallas" },
-  { id: "G6", grupo: "G", local: "Inglaterra", visitante: "Ucrania", fecha: "2026-06-26T20:00:00-05:00", estadio: "Nueva York" },
-  // Grupo H
-  { id: "H1", grupo: "H", local: "Uruguay", visitante: "Costa Rica", fecha: "2026-06-16T17:00:00-05:00", estadio: "Los Ángeles" },
-  { id: "H2", grupo: "H", local: "Panamá", visitante: "Camerún", fecha: "2026-06-17T14:00:00-05:00", estadio: "Chicago" },
-  { id: "H3", grupo: "H", local: "Uruguay", visitante: "Camerún", fecha: "2026-06-23T14:00:00-05:00", estadio: "Miami" },
-  { id: "H4", grupo: "H", local: "Costa Rica", visitante: "Panamá", fecha: "2026-06-23T20:00:00-05:00", estadio: "Houston" },
-  { id: "H5", grupo: "H", local: "Costa Rica", visitante: "Camerún", fecha: "2026-06-27T14:00:00-05:00", estadio: "Seattle" },
-  { id: "H6", grupo: "H", local: "Uruguay", visitante: "Panamá", fecha: "2026-06-27T20:00:00-05:00", estadio: "Nueva York" },
-  // Grupo I
-  { id: "I1", grupo: "I", local: "Suiza", visitante: "República Checa", fecha: "2026-06-18T14:00:00-05:00", estadio: "Los Ángeles" },
-  { id: "I2", grupo: "I", local: "Escocia", visitante: "Guinea", fecha: "2026-06-18T20:00:00-05:00", estadio: "Dallas" },
-  { id: "I3", grupo: "I", local: "Suiza", visitante: "Guinea", fecha: "2026-06-24T14:00:00-05:00", estadio: "Houston" },
-  { id: "I4", grupo: "I", local: "República Checa", visitante: "Escocia", fecha: "2026-06-24T20:00:00-05:00", estadio: "Miami" },
-  { id: "I5", grupo: "I", local: "República Checa", visitante: "Guinea", fecha: "2026-06-28T14:00:00-05:00", estadio: "Chicago" },
-  { id: "I6", grupo: "I", local: "Suiza", visitante: "Escocia", fecha: "2026-06-28T20:00:00-05:00", estadio: "Nueva York" },
-  // Grupo J
-  { id: "J1", grupo: "J", local: "Italia", visitante: "Austria", fecha: "2026-06-19T14:00:00-05:00", estadio: "Chicago" },
-  { id: "J2", grupo: "J", local: "Hungría", visitante: "Argelia", fecha: "2026-06-19T20:00:00-05:00", estadio: "Vancouver" },
-  { id: "J3", grupo: "J", local: "Italia", visitante: "Argelia", fecha: "2026-06-25T14:00:00-05:00", estadio: "Seattle" },
-  { id: "J4", grupo: "J", local: "Austria", visitante: "Hungría", fecha: "2026-06-25T20:00:00-05:00", estadio: "Los Ángeles" },
-  { id: "J5", grupo: "J", local: "Austria", visitante: "Argelia", fecha: "2026-06-29T14:00:00-05:00", estadio: "Dallas" },
-  { id: "J6", grupo: "J", local: "Italia", visitante: "Hungría", fecha: "2026-06-29T20:00:00-05:00", estadio: "Miami" },
-  // Grupo K
-  { id: "K1", grupo: "K", local: "Venezuela", visitante: "Bolivia", fecha: "2026-06-20T14:00:00-05:00", estadio: "Houston" },
-  { id: "K2", grupo: "K", local: "Nigeria", visitante: "Venezuela", fecha: "2026-06-20T20:00:00-05:00", estadio: "Chicago" },
-  { id: "K3", grupo: "K", local: "Bolivia", visitante: "Nigeria", fecha: "2026-06-26T14:00:00-05:00", estadio: "Miami" },
-  { id: "K4", grupo: "K", local: "Venezuela", visitante: "Nigeria", fecha: "2026-06-26T20:00:00-05:00", estadio: "Dallas" },
-  { id: "K5", grupo: "K", local: "Bolivia", visitante: "Venezuela", fecha: "2026-06-30T14:00:00-05:00", estadio: "Seattle" },
-  { id: "K6", grupo: "K", local: "Nigeria", visitante: "Bolivia", fecha: "2026-06-30T20:00:00-05:00", estadio: "Houston" },
-  // Grupo L
-  { id: "L1", grupo: "L", local: "Corea del Sur", visitante: "Costa de Marfil", fecha: "2026-06-21T14:00:00-05:00", estadio: "Los Ángeles" },
-  { id: "L2", grupo: "L", local: "Serbia", visitante: "Corea del Sur", fecha: "2026-06-21T20:00:00-05:00", estadio: "Nueva York" },
-  { id: "L3", grupo: "L", local: "Costa de Marfil", visitante: "Serbia", fecha: "2026-06-27T14:00:00-05:00", estadio: "Miami" },
-  { id: "L4", grupo: "L", local: "Corea del Sur", visitante: "Serbia", fecha: "2026-06-27T20:00:00-05:00", estadio: "Chicago" },
-  { id: "L5", grupo: "L", local: "Costa de Marfil", visitante: "Serbia", fecha: "2026-07-01T14:00:00-05:00", estadio: "Dallas" },
-  { id: "L6", grupo: "L", local: "Corea del Sur", visitante: "Costa de Marfil", fecha: "2026-07-01T20:00:00-05:00", estadio: "Seattle" },
+const TODOS_EQUIPOS = Object.values(GRUPOS).flat().sort();
+
+const RONDAS = [
+  { id:"r32", nombre:"Ronda de 32",    partidos:16, pts:4  },
+  { id:"r16", nombre:"Octavos de Final", partidos:8,  pts:4  },
+  { id:"qf",  nombre:"Cuartos de Final", partidos:4,  pts:4  },
+  { id:"sf",  nombre:"Semifinales",      partidos:2,  pts:4  },
+  { id:"fin", nombre:"Gran Final",       partidos:1,  pts:10 },
 ];
 
-// ─── SISTEMA DE PUNTOS ────────────────────────────────────────────────
-function calcularPuntos(prediccion, resultado) {
-  const { local: pL, visitante: pV } = prediccion;
-  const { local: rL, visitante: rV } = resultado;
+const PG = [
+  {id:"A1",g:"A",l:"México",v:"Canadá",f:"2026-06-11T20:00:00-05:00",e:"Los Ángeles"},
+  {id:"A2",g:"A",l:"Estados Unidos",v:"Nueva Zelanda",f:"2026-06-12T14:00:00-05:00",e:"Nueva York"},
+  {id:"A3",g:"A",l:"México",v:"Nueva Zelanda",f:"2026-06-16T14:00:00-05:00",e:"Dallas"},
+  {id:"A4",g:"A",l:"Canadá",v:"Estados Unidos",f:"2026-06-16T20:00:00-05:00",e:"Toronto"},
+  {id:"A5",g:"A",l:"Canadá",v:"Nueva Zelanda",f:"2026-06-20T14:00:00-05:00",e:"Vancouver"},
+  {id:"A6",g:"A",l:"Estados Unidos",v:"México",f:"2026-06-20T20:00:00-05:00",e:"Dallas"},
+  {id:"B1",g:"B",l:"Argentina",v:"Chile",f:"2026-06-12T17:00:00-05:00",e:"Miami"},
+  {id:"B2",g:"B",l:"Perú",v:"Australia",f:"2026-06-12T20:00:00-05:00",e:"Chicago"},
+  {id:"B3",g:"B",l:"Argentina",v:"Australia",f:"2026-06-17T14:00:00-05:00",e:"Houston"},
+  {id:"B4",g:"B",l:"Chile",v:"Perú",f:"2026-06-17T20:00:00-05:00",e:"Seattle"},
+  {id:"B5",g:"B",l:"Chile",v:"Australia",f:"2026-06-21T14:00:00-05:00",e:"Seattle"},
+  {id:"B6",g:"B",l:"Argentina",v:"Perú",f:"2026-06-21T20:00:00-05:00",e:"Miami"},
+  {id:"C1",g:"C",l:"Brasil",v:"Colombia",f:"2026-06-13T14:00:00-05:00",e:"Nueva York"},
+  {id:"C2",g:"C",l:"Ecuador",v:"Japón",f:"2026-06-13T20:00:00-05:00",e:"Los Ángeles"},
+  {id:"C3",g:"C",l:"Brasil",v:"Japón",f:"2026-06-18T14:00:00-05:00",e:"Dallas"},
+  {id:"C4",g:"C",l:"Colombia",v:"Ecuador",f:"2026-06-18T20:00:00-05:00",e:"Houston"},
+  {id:"C5",g:"C",l:"Colombia",v:"Japón",f:"2026-06-22T14:00:00-05:00",e:"Chicago"},
+  {id:"C6",g:"C",l:"Brasil",v:"Ecuador",f:"2026-06-22T20:00:00-05:00",e:"Nueva York"},
+  {id:"D1",g:"D",l:"Francia",v:"Bélgica",f:"2026-06-13T17:00:00-05:00",e:"Los Ángeles"},
+  {id:"D2",g:"D",l:"Marruecos",v:"Arabia Saudita",f:"2026-06-14T14:00:00-05:00",e:"Miami"},
+  {id:"D3",g:"D",l:"Francia",v:"Arabia Saudita",f:"2026-06-19T14:00:00-05:00",e:"Seattle"},
+  {id:"D4",g:"D",l:"Bélgica",v:"Marruecos",f:"2026-06-19T20:00:00-05:00",e:"Dallas"},
+  {id:"D5",g:"D",l:"Bélgica",v:"Arabia Saudita",f:"2026-06-23T14:00:00-05:00",e:"Houston"},
+  {id:"D6",g:"D",l:"Francia",v:"Marruecos",f:"2026-06-23T20:00:00-05:00",e:"Los Ángeles"},
+  {id:"E1",g:"E",l:"España",v:"Portugal",f:"2026-06-14T17:00:00-05:00",e:"Nueva York"},
+  {id:"E2",g:"E",l:"Croacia",v:"Turquía",f:"2026-06-14T20:00:00-05:00",e:"Seattle"},
+  {id:"E3",g:"E",l:"España",v:"Turquía",f:"2026-06-20T14:00:00-05:00",e:"Miami"},
+  {id:"E4",g:"E",l:"Portugal",v:"Croacia",f:"2026-06-20T20:00:00-05:00",e:"Chicago"},
+  {id:"E5",g:"E",l:"Portugal",v:"Turquía",f:"2026-06-24T14:00:00-05:00",e:"Los Ángeles"},
+  {id:"E6",g:"E",l:"España",v:"Croacia",f:"2026-06-24T20:00:00-05:00",e:"Nueva York"},
+  {id:"F1",g:"F",l:"Alemania",v:"Países Bajos",f:"2026-06-15T14:00:00-05:00",e:"Dallas"},
+  {id:"F2",g:"F",l:"Dinamarca",v:"Senegal",f:"2026-06-15T20:00:00-05:00",e:"Houston"},
+  {id:"F3",g:"F",l:"Alemania",v:"Senegal",f:"2026-06-21T14:00:00-05:00",e:"Vancouver"},
+  {id:"F4",g:"F",l:"Países Bajos",v:"Dinamarca",f:"2026-06-21T20:00:00-05:00",e:"Los Ángeles"},
+  {id:"F5",g:"F",l:"Países Bajos",v:"Senegal",f:"2026-06-25T14:00:00-05:00",e:"Dallas"},
+  {id:"F6",g:"F",l:"Alemania",v:"Dinamarca",f:"2026-06-25T20:00:00-05:00",e:"Chicago"},
+  {id:"G1",g:"G",l:"Inglaterra",v:"Polonia",f:"2026-06-15T17:00:00-05:00",e:"Nueva York"},
+  {id:"G2",g:"G",l:"Ucrania",v:"Irán",f:"2026-06-16T14:00:00-05:00",e:"Miami"},
+  {id:"G3",g:"G",l:"Inglaterra",v:"Irán",f:"2026-06-22T14:00:00-05:00",e:"Houston"},
+  {id:"G4",g:"G",l:"Polonia",v:"Ucrania",f:"2026-06-22T20:00:00-05:00",e:"Seattle"},
+  {id:"G5",g:"G",l:"Polonia",v:"Irán",f:"2026-06-26T14:00:00-05:00",e:"Dallas"},
+  {id:"G6",g:"G",l:"Inglaterra",v:"Ucrania",f:"2026-06-26T20:00:00-05:00",e:"Nueva York"},
+  {id:"H1",g:"H",l:"Uruguay",v:"Costa Rica",f:"2026-06-16T17:00:00-05:00",e:"Los Ángeles"},
+  {id:"H2",g:"H",l:"Panamá",v:"Camerún",f:"2026-06-17T14:00:00-05:00",e:"Chicago"},
+  {id:"H3",g:"H",l:"Uruguay",v:"Camerún",f:"2026-06-23T14:00:00-05:00",e:"Miami"},
+  {id:"H4",g:"H",l:"Costa Rica",v:"Panamá",f:"2026-06-23T20:00:00-05:00",e:"Houston"},
+  {id:"H5",g:"H",l:"Costa Rica",v:"Camerún",f:"2026-06-27T14:00:00-05:00",e:"Seattle"},
+  {id:"H6",g:"H",l:"Uruguay",v:"Panamá",f:"2026-06-27T20:00:00-05:00",e:"Nueva York"},
+  {id:"I1",g:"I",l:"Suiza",v:"República Checa",f:"2026-06-18T14:00:00-05:00",e:"Los Ángeles"},
+  {id:"I2",g:"I",l:"Escocia",v:"Guinea",f:"2026-06-18T20:00:00-05:00",e:"Dallas"},
+  {id:"I3",g:"I",l:"Suiza",v:"Guinea",f:"2026-06-24T14:00:00-05:00",e:"Houston"},
+  {id:"I4",g:"I",l:"República Checa",v:"Escocia",f:"2026-06-24T20:00:00-05:00",e:"Miami"},
+  {id:"I5",g:"I",l:"República Checa",v:"Guinea",f:"2026-06-28T14:00:00-05:00",e:"Chicago"},
+  {id:"I6",g:"I",l:"Suiza",v:"Escocia",f:"2026-06-28T20:00:00-05:00",e:"Nueva York"},
+  {id:"J1",g:"J",l:"Italia",v:"Austria",f:"2026-06-19T14:00:00-05:00",e:"Chicago"},
+  {id:"J2",g:"J",l:"Hungría",v:"Argelia",f:"2026-06-19T20:00:00-05:00",e:"Vancouver"},
+  {id:"J3",g:"J",l:"Italia",v:"Argelia",f:"2026-06-25T14:00:00-05:00",e:"Seattle"},
+  {id:"J4",g:"J",l:"Austria",v:"Hungría",f:"2026-06-25T20:00:00-05:00",e:"Los Ángeles"},
+  {id:"J5",g:"J",l:"Austria",v:"Argelia",f:"2026-06-29T14:00:00-05:00",e:"Dallas"},
+  {id:"J6",g:"J",l:"Italia",v:"Hungría",f:"2026-06-29T20:00:00-05:00",e:"Miami"},
+  {id:"K1",g:"K",l:"Venezuela",v:"Bolivia",f:"2026-06-20T14:00:00-05:00",e:"Houston"},
+  {id:"K2",g:"K",l:"Nigeria",v:"Qatar",f:"2026-06-20T20:00:00-05:00",e:"Chicago"},
+  {id:"K3",g:"K",l:"Bolivia",v:"Nigeria",f:"2026-06-26T14:00:00-05:00",e:"Miami"},
+  {id:"K4",g:"K",l:"Venezuela",v:"Qatar",f:"2026-06-26T20:00:00-05:00",e:"Dallas"},
+  {id:"K5",g:"K",l:"Bolivia",v:"Qatar",f:"2026-06-30T14:00:00-05:00",e:"Seattle"},
+  {id:"K6",g:"K",l:"Nigeria",v:"Venezuela",f:"2026-06-30T20:00:00-05:00",e:"Houston"},
+  {id:"L1",g:"L",l:"Corea del Sur",v:"Costa de Marfil",f:"2026-06-21T14:00:00-05:00",e:"Los Ángeles"},
+  {id:"L2",g:"L",l:"Serbia",v:"Rumania",f:"2026-06-21T20:00:00-05:00",e:"Nueva York"},
+  {id:"L3",g:"L",l:"Corea del Sur",v:"Serbia",f:"2026-06-27T14:00:00-05:00",e:"Miami"},
+  {id:"L4",g:"L",l:"Costa de Marfil",v:"Rumania",f:"2026-06-27T20:00:00-05:00",e:"Chicago"},
+  {id:"L5",g:"L",l:"Costa de Marfil",v:"Serbia",f:"2026-07-01T14:00:00-05:00",e:"Dallas"},
+  {id:"L6",g:"L",l:"Corea del Sur",v:"Rumania",f:"2026-07-01T20:00:00-05:00",e:"Seattle"},
+];
 
-  // Marcador exacto
-  if (pL === rL && pV === rV) return 6;
+// Fecha de cierre de predicción de campeón: inicio de la Ronda de 32
+const FECHA_CIERRE_CAMPEON = "2026-07-04T12:00:00-05:00";
 
-  const ganadorReal = rL > rV ? "local" : rV > rL ? "visitante" : "empate";
-  const ganadorPred = pL > pV ? "local" : pV > pL ? "visitante" : "empate";
+// ════════════════════════════════════════════════════════════════
+// BANDERAS
+// ════════════════════════════════════════════════════════════════
+const B = {
+  "Estados Unidos":"🇺🇸","México":"🇲🇽","Canadá":"🇨🇦","Nueva Zelanda":"🇳🇿",
+  "Argentina":"🇦🇷","Chile":"🇨🇱","Perú":"🇵🇪","Australia":"🇦🇺",
+  "Brasil":"🇧🇷","Colombia":"🇨🇴","Ecuador":"🇪🇨","Japón":"🇯🇵",
+  "Francia":"🇫🇷","Bélgica":"🇧🇪","Marruecos":"🇲🇦","Arabia Saudita":"🇸🇦",
+  "España":"🇪🇸","Portugal":"🇵🇹","Croacia":"🇭🇷","Turquía":"🇹🇷",
+  "Alemania":"🇩🇪","Países Bajos":"🇳🇱","Dinamarca":"🇩🇰","Senegal":"🇸🇳",
+  "Inglaterra":"🏴󠁧󠁢󠁥󠁮󠁧󠁿","Polonia":"🇵🇱","Ucrania":"🇺🇦","Irán":"🇮🇷",
+  "Uruguay":"🇺🇾","Costa Rica":"🇨🇷","Panamá":"🇵🇦","Camerún":"🇨🇲",
+  "Suiza":"🇨🇭","República Checa":"🇨🇿","Escocia":"🏴󠁧󠁢󠁳󠁣󠁴󠁿","Guinea":"🇬🇳",
+  "Italia":"🇮🇹","Austria":"🇦🇹","Hungría":"🇭🇺","Argelia":"🇩🇿",
+  "Venezuela":"🇻🇪","Bolivia":"🇧🇴","Nigeria":"🇳🇬","Qatar":"🇶🇦",
+  "Corea del Sur":"🇰🇷","Costa de Marfil":"🇨🇮","Serbia":"🇷🇸","Rumania":"🇷🇴",
+};
+const F = e => B[e]||"🏳️";
 
-  // Goles del ganador exactos (consolación, 2 pts)
-  let golesGanadorExactos = false;
-  if (ganadorReal === "local" && pL === rL) golesGanadorExactos = true;
-  if (ganadorReal === "visitante" && pV === rV) golesGanadorExactos = true;
-  if (ganadorReal === "empate" && (pL === rL || pV === rV)) golesGanadorExactos = true;
-  if (golesGanadorExactos) return 2;
-
-  // Ganador correcto
-  if (ganadorPred === ganadorReal) return 3;
-
+// ════════════════════════════════════════════════════════════════
+// SISTEMA DE PUNTOS
+// ════════════════════════════════════════════════════════════════
+function calcPuntos(pred, res) {
+  const {l:pL,v:pV}=pred, {l:rL,v:rV}=res;
+  if(pL===rL&&pV===rV) return 6;
+  const gr=rL>rV?"l":rV>rL?"v":"e", gp=pL>pV?"l":pV>pL?"v":"e";
+  let exacto=false;
+  if(gr==="l"&&pL===rL) exacto=true;
+  if(gr==="v"&&pV===rV) exacto=true;
+  if(gr==="e"&&(pL===rL||pV===rV)) exacto=true;
+  if(exacto) return 2;
+  if(gp===gr) return 3;
   return 0;
 }
+const bloqueado = f => new Date()>=new Date(new Date(f).getTime()-3600000);
+const genCodigo = ()=>{const c="ABCDEFGHJKLMNPQRSTUVWXYZ23456789";return Array.from({length:6},()=>c[Math.floor(Math.random()*c.length)]).join("");};
 
-function esBloqueado(fechaPartido) {
-  const limite = new Date(new Date(fechaPartido).getTime() - 60 * 60 * 1000);
-  return new Date() >= limite;
+// ════════════════════════════════════════════════════════════════
+// ESTILOS
+// ════════════════════════════════════════════════════════════════
+const CSS = `
+@import url('https://fonts.googleapis.com/css2?family=Bebas+Neue&family=Nunito:wght@400;600;700;800;900&display=swap');
+*{box-sizing:border-box;margin:0;padding:0}
+:root{
+  --v:#00C853;--vo:#007E33;--d:#FFD700;--r:#D32F2F;--m:#7C3AED;
+  --f0:#0a0a0a;--f1:#111;--f2:#1a1a1a;--t:#f0f0f0;--t2:#aaa;--b:#2a2a2a;--rad:16px;
 }
+body{font-family:'Nunito',sans-serif;background:var(--f0);color:var(--t);min-height:100vh;overscroll-behavior:none}
+h1,h2{font-family:'Bebas Neue',sans-serif;letter-spacing:2px}
+.app{max-width:480px;margin:0 auto;padding:0 0 100px;min-height:100vh}
 
-function generarCodigo() {
-  const chars = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
-  let code = "";
-  for (let i = 0; i < 6; i++) code += chars[Math.floor(Math.random() * chars.length)];
-  return code;
-}
+.hdr{background:linear-gradient(135deg,#004D00,#006400,#004D00);padding:18px 16px 14px;position:sticky;top:0;z-index:100;border-bottom:3px solid var(--d)}
+.hdr-top{display:flex;justify-content:space-between;align-items:center}
+.hdr h1{font-size:26px;color:var(--d);line-height:1}
+.hdr p{font-size:11px;color:rgba(255,255,255,.7);margin-top:2px}
+.av{width:38px;height:38px;border-radius:50%;border:2px solid var(--d);object-fit:cover;cursor:pointer}
 
-// ─── BANDERAS EMOJI ───────────────────────────────────────────────────
-const BANDERAS = {
-  "Estados Unidos": "🇺🇸", "México": "🇲🇽", "Canadá": "🇨🇦", "Nueva Zelanda": "🇳🇿",
-  "Argentina": "🇦🇷", "Chile": "🇨🇱", "Perú": "🇵🇪", "Australia": "🇦🇺",
-  "Brasil": "🇧🇷", "Colombia": "🇨🇴", "Ecuador": "🇪🇨", "Japón": "🇯🇵",
-  "Francia": "🇫🇷", "Bélgica": "🇧🇪", "Marruecos": "🇲🇦", "Arabia Saudita": "🇸🇦",
-  "España": "🇪🇸", "Portugal": "🇵🇹", "Croacia": "🇭🇷", "Turquía": "🇹🇷",
-  "Alemania": "🇩🇪", "Países Bajos": "🇳🇱", "Dinamarca": "🇩🇰", "Senegal": "🇸🇳",
-  "Inglaterra": "🏴󠁧󠁢󠁥󠁮󠁧󠁿", "Polonia": "🇵🇱", "Ucrania": "🇺🇦", "Irán": "🇮🇷",
-  "Uruguay": "🇺🇾", "Costa Rica": "🇨🇷", "Panamá": "🇵🇦", "Camerún": "🇨🇲",
-  "Suiza": "🇨🇭", "República Checa": "🇨🇿", "Escocia": "🏴󠁧󠁢󠁳󠁣󠁴󠁿", "Guinea": "🇬🇳",
-  "Italia": "🇮🇹", "Austria": "🇦🇹", "Hungría": "🇭🇺", "Argelia": "🇩🇿",
-  "Venezuela": "🇻🇪", "Bolivia": "🇧🇴", "Nigeria": "🇳🇬",
-  "Corea del Sur": "🇰🇷", "Costa de Marfil": "🇨🇮", "Serbia": "🇷🇸"
-};
+.nav{position:fixed;bottom:0;left:50%;transform:translateX(-50%);width:100%;max-width:480px;background:#111;border-top:1px solid var(--b);display:flex;padding:8px 0 20px;z-index:100}
+.nb{flex:1;display:flex;flex-direction:column;align-items:center;gap:3px;background:none;border:none;color:var(--t2);cursor:pointer;font-family:'Nunito';font-size:10px;font-weight:700;padding:6px 0;transition:color .2s}
+.nb.on{color:var(--v)}
+.nb span:first-child{font-size:20px}
 
-const flag = (equipo) => BANDERAS[equipo] || "🏳️";
+.lscreen{min-height:100vh;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:32px 24px;gap:20px;background:radial-gradient(ellipse at top,#003300,var(--f0) 70%)}
+.llogo{font-family:'Bebas Neue';font-size:68px;color:var(--d);text-align:center;line-height:.9}
+.lsub{font-size:15px;color:rgba(255,255,255,.6);text-align:center}
+.lcard{background:var(--f1);border:1px solid var(--b);border-radius:24px;padding:28px 20px;text-align:center;width:100%;max-width:360px}
+.lcard h2{font-size:26px;color:var(--v);margin-bottom:6px}
+.lcard p{color:var(--t2);font-size:13px;margin-bottom:20px;line-height:1.5}
+.goog{width:100%;padding:15px;border-radius:14px;border:none;cursor:pointer;background:white;color:#333;font-family:'Nunito';font-size:15px;font-weight:800;display:flex;align-items:center;justify-content:center;gap:10px;box-shadow:0 4px 16px rgba(0,0,0,.4);transition:transform .1s}
+.goog:hover{transform:translateY(-1px)}
+.goog img{width:22px}
+.divider{display:flex;align-items:center;gap:8px;margin:10px 0}
+.divider hr{flex:1;border:none;border-top:1px solid var(--b)}
+.divider span{color:var(--t2);font-size:12px}
 
-// ─── ESTILOS CSS ──────────────────────────────────────────────────────
-const estilos = `
-  @import url('https://fonts.googleapis.com/css2?family=Bebas+Neue&family=Nunito:wght@400;600;700;800;900&display=swap');
+.btn{padding:13px 22px;border-radius:14px;border:none;cursor:pointer;font-family:'Nunito';font-size:15px;font-weight:800;transition:transform .1s,filter .2s;display:inline-flex;align-items:center;gap:8px}
+.btn:active{transform:scale(.97)}
+.bp{background:var(--v);color:#000}.bp:hover{filter:brightness(1.1)}
+.bs{background:var(--f2);color:var(--t);border:1px solid var(--b)}
+.bd{background:var(--d);color:#000}
+.br{background:var(--r);color:#fff}
+.bm{background:var(--m);color:#fff}
+.bw{width:100%;justify-content:center}
 
-  * { box-sizing: border-box; margin: 0; padding: 0; }
+.card{background:var(--f1);border:1px solid var(--b);border-radius:var(--rad);padding:16px;margin:10px 16px}
+.ctit{font-size:12px;font-weight:700;color:var(--t2);text-transform:uppercase;letter-spacing:1px;margin-bottom:10px}
+.sec{padding:16px}
+.stit{font-family:'Bebas Neue';font-size:22px;color:var(--d);margin-bottom:4px}
+.ssub{font-size:13px;color:var(--t2);margin-bottom:14px}
 
-  :root {
-    --verde: #00C853;
-    --verde-oscuro: #007E33;
-    --dorado: #FFD700;
-    --rojo: #D32F2F;
-    --azul: #1565C0;
-    --fondo: #0a0a0a;
-    --fondo2: #111111;
-    --fondo3: #1a1a1a;
-    --texto: #f0f0f0;
-    --texto2: #aaaaaa;
-    --borde: #2a2a2a;
-    --radio: 16px;
-  }
+.fi{background:var(--f1);border:1px solid var(--b);border-radius:var(--rad);padding:15px;margin-bottom:10px;cursor:pointer;transition:border-color .2s,transform .1s}
+.fi:hover{border-color:var(--v);transform:translateY(-1px)}
+.fi.on{border-color:var(--v);background:#0a1f0a}
+.fn{font-size:17px;font-weight:800}
+.fc{font-size:11px;color:var(--t2);margin-top:3px;font-family:monospace;letter-spacing:2px}
+.fm{font-size:12px;color:var(--v);margin-top:3px;font-weight:700}
 
-  body {
-    font-family: 'Nunito', sans-serif;
-    background: var(--fondo);
-    color: var(--texto);
-    min-height: 100vh;
-    overscroll-behavior: none;
-  }
+.fg{margin-bottom:14px}
+.fl{font-size:12px;font-weight:700;color:var(--t2);margin-bottom:5px;display:block;text-transform:uppercase;letter-spacing:.5px}
+.fi2{width:100%;padding:13px 15px;border-radius:12px;background:var(--f2);border:1px solid var(--b);color:var(--t);font-family:'Nunito';font-size:15px;font-weight:700;outline:none;transition:border-color .2s}
+.fi2:focus{border-color:var(--v)}
+.fi2.cod{letter-spacing:4px;text-transform:uppercase;font-size:18px;text-align:center}
 
-  h1, h2 { font-family: 'Bebas Neue', sans-serif; letter-spacing: 2px; }
+.pc{background:var(--f1);border:1px solid var(--b);border-radius:var(--rad);padding:15px;margin-bottom:10px;position:relative;overflow:hidden}
+.pc.lok{opacity:.75}
+.pc.res{border-color:#1a3a1a}
+.pbadge{position:absolute;top:10px;right:10px;background:var(--vo);color:var(--d);font-size:10px;font-weight:900;padding:2px 7px;border-radius:20px;letter-spacing:1px}
+.peqs{display:grid;grid-template-columns:1fr auto 1fr;align-items:center;gap:8px;margin-bottom:10px}
+.peq{display:flex;flex-direction:column;align-items:center;gap:3px}
+.pef{font-size:34px}
+.pen{font-size:10px;font-weight:700;text-align:center;line-height:1.2}
+.vs{font-family:'Bebas Neue';font-size:20px;color:var(--t2)}
+.rreal{text-align:center;margin-bottom:10px;font-family:'Bebas Neue';font-size:34px;color:var(--d);letter-spacing:4px}
+.pinps{display:grid;grid-template-columns:1fr 28px 1fr;gap:7px;align-items:center;margin-bottom:7px}
+.pinp{background:var(--f2);border:2px solid var(--b);border-radius:11px;color:var(--t);font-family:'Bebas Neue';font-size:30px;text-align:center;padding:7px 4px;width:100%;outline:none;transition:border-color .2s}
+.pinp:focus{border-color:var(--v)}
+.pg{font-family:'Bebas Neue';font-size:26px;color:var(--t2);text-align:center}
+.ppb{display:inline-flex;align-items:center;gap:5px;background:#1a3a1a;border:1px solid var(--v);border-radius:20px;padding:4px 10px;font-size:12px;font-weight:700;color:var(--v)}
+.lav{font-size:11px;color:var(--r);text-align:center;font-weight:700;display:flex;align-items:center;justify-content:center;gap:4px;margin-top:5px}
+.fp{font-size:11px;color:var(--t2);text-align:center;margin-bottom:7px}
 
-  .app { max-width: 480px; margin: 0 auto; padding: 0 0 100px; min-height: 100vh; }
+.ep{background:var(--f1);border:1px solid var(--b);border-radius:var(--rad);padding:15px;margin-bottom:10px}
+.ep.res{border-color:#3a1a4a}
+.eo{display:flex;align-items:center;gap:10px;padding:13px 14px;border-radius:12px;border:2px solid var(--b);background:var(--f2);cursor:pointer;margin-bottom:7px;transition:all .2s;font-weight:700;font-size:14px}
+.eo:hover{border-color:var(--m)}
+.eo.sel{border-color:var(--m);background:#1a0a2a;color:#fff}
+.eo.gan{border-color:var(--d);background:#2a1a00}
+.eo.ok{border-color:var(--v);background:#0a1f0a}
+.eo.fail{border-color:var(--r);background:#1f0a0a;opacity:.7}
+.rhdr{display:flex;align-items:center;gap:10px;padding:12px 14px;background:linear-gradient(90deg,#1a0a2a,var(--f1));border-radius:12px;margin-bottom:10px;border:1px solid #3a1a4a}
+.rhdr h3{font-family:'Bebas Neue';font-size:19px;color:#c084fc}
 
-  /* HEADER */
-  .header {
-    background: linear-gradient(135deg, #004D00 0%, #006400 50%, #004D00 100%);
-    padding: 20px 16px 16px;
-    position: sticky; top: 0; z-index: 100;
-    border-bottom: 3px solid var(--dorado);
-  }
-  .header-top { display: flex; justify-content: space-between; align-items: center; }
-  .header h1 { font-size: 28px; color: var(--dorado); line-height: 1; }
-  .header p { font-size: 11px; color: rgba(255,255,255,0.7); margin-top: 2px; }
-  .avatar { width: 38px; height: 38px; border-radius: 50%; border: 2px solid var(--dorado); object-fit: cover; }
+/* CAMPEON */
+.camp-card{background:linear-gradient(135deg,#1a1000,#2a2000);border:2px solid var(--d);border-radius:var(--rad);padding:20px;margin-bottom:12px;text-align:center}
+.camp-titulo{font-family:'Bebas Neue';font-size:28px;color:var(--d);margin-bottom:4px}
+.camp-sub{font-size:13px;color:var(--t2);margin-bottom:16px;line-height:1.5}
+.camp-sel{display:flex;align-items:center;gap:12px;padding:14px 16px;border-radius:12px;border:2px solid var(--b);background:var(--f2);cursor:pointer;margin-bottom:8px;transition:all .2s;font-weight:700;font-size:14px;text-align:left}
+.camp-sel:hover{border-color:var(--d)}
+.camp-sel.elegido{border-color:var(--d);background:#2a1a00}
+.camp-sel.campeon{border-color:var(--d);background:#2a1a00;box-shadow:0 0 20px rgba(255,215,0,.3)}
+.camp-sel.acerto{border-color:var(--v);background:#0a1f0a}
+.camp-sel.fallo{border-color:var(--r);background:#1f0a0a;opacity:.7}
+.camp-grid{display:grid;grid-template-columns:1fr 1fr;gap:8px;max-height:400px;overflow-y:auto;margin-bottom:12px}
+.camp-bloq{background:var(--f2);border:1px solid var(--b);border-radius:12px;padding:16px;text-align:center;color:var(--t2);font-size:13px}
 
-  /* NAVEGACIÓN */
-  .nav-bottom {
-    position: fixed; bottom: 0; left: 50%; transform: translateX(-50%);
-    width: 100%; max-width: 480px;
-    background: #111; border-top: 1px solid var(--borde);
-    display: flex; padding: 8px 0 20px;
-    z-index: 100;
-  }
-  .nav-btn {
-    flex: 1; display: flex; flex-direction: column; align-items: center; gap: 4px;
-    background: none; border: none; color: var(--texto2); cursor: pointer;
-    font-family: 'Nunito', sans-serif; font-size: 10px; font-weight: 700; padding: 6px 0;
-    transition: color 0.2s;
-  }
-  .nav-btn.activo { color: var(--verde); }
-  .nav-btn span:first-child { font-size: 22px; }
+.tp{border-radius:var(--rad);overflow:hidden;margin:0 16px}
+.th{display:grid;grid-template-columns:40px 1fr 55px 55px;padding:10px 14px;background:var(--vo);font-size:11px;font-weight:900;letter-spacing:1px;text-transform:uppercase}
+.tr{display:grid;grid-template-columns:40px 1fr 55px 55px;padding:13px 14px;border-bottom:1px solid var(--b);background:var(--f1);align-items:center;transition:background .2s}
+.tr:hover{background:var(--f2)}
+.tr.yo{background:#0a1f0a}
+.tpos{font-family:'Bebas Neue';font-size:20px;color:var(--t2)}
+.tpos.p1{color:var(--d)}.tpos.p2{color:#aaa}.tpos.p3{color:#cd7f32}
+.tnom{font-weight:800;font-size:14px}
+.tpar{text-align:center;color:var(--t2);font-size:12px}
+.tpts{text-align:right;font-family:'Bebas Neue';font-size:24px;color:var(--v)}
 
-  /* PANTALLA LOGIN */
-  .login-screen {
-    min-height: 100vh; display: flex; flex-direction: column;
-    align-items: center; justify-content: center; padding: 32px 24px; gap: 24px;
-    background: radial-gradient(ellipse at top, #003300 0%, var(--fondo) 70%);
-  }
-  .login-logo { font-family: 'Bebas Neue'; font-size: 72px; color: var(--dorado); text-align: center; line-height: 0.9; }
-  .login-sub { font-size: 16px; color: rgba(255,255,255,0.6); text-align: center; }
-  .login-card {
-    background: var(--fondo2); border: 1px solid var(--borde); border-radius: 24px;
-    padding: 32px 24px; text-align: center; width: 100%; max-width: 360px;
-  }
-  .login-card h2 { font-size: 28px; color: var(--verde); margin-bottom: 8px; }
-  .login-card p { color: var(--texto2); font-size: 14px; margin-bottom: 24px; line-height: 1.5; }
-  .btn-google {
-    width: 100%; padding: 16px; border-radius: 14px; border: none; cursor: pointer;
-    background: white; color: #333; font-family: 'Nunito', sans-serif;
-    font-size: 16px; font-weight: 800; display: flex; align-items: center;
-    justify-content: center; gap: 12px; transition: transform 0.1s, box-shadow 0.2s;
-    box-shadow: 0 4px 16px rgba(0,0,0,0.4);
-  }
-  .btn-google:hover { transform: translateY(-1px); box-shadow: 0 6px 20px rgba(0,0,0,0.5); }
-  .btn-google:active { transform: translateY(0); }
-  .btn-google img { width: 24px; }
+.tabs{display:flex;gap:7px;padding:0 16px;margin-bottom:14px;overflow-x:auto}
+.tabs::-webkit-scrollbar{display:none}
+.tab{padding:7px 14px;border-radius:20px;border:1px solid var(--b);background:var(--f1);color:var(--t2);cursor:pointer;white-space:nowrap;font-family:'Nunito';font-size:12px;font-weight:700;transition:all .2s}
+.tab.on{background:var(--v);color:#000;border-color:var(--v)}
+.tab.onm{background:var(--m);color:#fff;border-color:var(--m)}
 
-  /* BOTONES */
-  .btn {
-    padding: 14px 24px; border-radius: 14px; border: none; cursor: pointer;
-    font-family: 'Nunito', sans-serif; font-size: 16px; font-weight: 800;
-    transition: transform 0.1s, filter 0.2s; display: inline-flex; align-items: center; gap: 8px;
-  }
-  .btn:active { transform: scale(0.97); }
-  .btn-primary { background: var(--verde); color: #000; }
-  .btn-primary:hover { filter: brightness(1.1); }
-  .btn-secundario { background: var(--fondo3); color: var(--texto); border: 1px solid var(--borde); }
-  .btn-dorado { background: var(--dorado); color: #000; }
-  .btn-rojo { background: var(--rojo); color: white; }
-  .btn-bloque { width: 100%; justify-content: center; }
+.ftabs{display:flex;gap:0;margin:0 16px 14px;border-radius:12px;overflow:hidden;border:1px solid var(--b)}
+.ftab{flex:1;padding:11px 6px;text-align:center;background:var(--f1);color:var(--t2);cursor:pointer;font-weight:800;font-size:12px;border:none;font-family:'Nunito';transition:all .2s}
+.ftab.on{background:var(--v);color:#000}
+.ftab.onm{background:var(--m);color:#fff}
 
-  /* CARDS */
-  .card {
-    background: var(--fondo2); border: 1px solid var(--borde); border-radius: var(--radio);
-    padding: 16px; margin: 12px 16px;
-  }
-  .card-titulo { font-size: 13px; font-weight: 700; color: var(--texto2); text-transform: uppercase; letter-spacing: 1px; margin-bottom: 12px; }
+.ap{padding:16px}
+.rf{display:grid;grid-template-columns:1fr 28px 1fr;gap:7px;align-items:center;margin:10px 0}
+.rf input{background:var(--f2);border:2px solid var(--b);border-radius:11px;color:var(--t);font-family:'Bebas Neue';font-size:30px;text-align:center;padding:7px;outline:none;transition:border-color .2s}
+.rf input:focus{border-color:var(--d)}
+.rg{font-family:'Bebas Neue';font-size:26px;color:var(--t2);text-align:center}
+.arc{background:linear-gradient(135deg,#1a0a2a,#2a1a3a);border:1px solid #4a2a6a;border-radius:var(--rad);padding:15px;margin-bottom:10px}
+.arc h3{font-family:'Bebas Neue';font-size:19px;color:#c084fc;margin-bottom:3px}
+.arc p{font-size:12px;color:var(--t2);margin-bottom:10px}
+.sel2{width:100%;padding:11px 14px;border-radius:11px;background:var(--f2);border:2px solid var(--b);color:var(--t);font-family:'Nunito';font-size:14px;font-weight:700;outline:none;cursor:pointer}
+.sel2:focus{border-color:var(--m)}
 
-  /* SECCIÓN LIGAS */
-  .seccion { padding: 16px; }
-  .seccion-titulo { font-family: 'Bebas Neue'; font-size: 24px; color: var(--dorado); margin-bottom: 4px; }
-  .seccion-sub { font-size: 13px; color: var(--texto2); margin-bottom: 16px; }
+.mo{position:fixed;inset:0;background:rgba(0,0,0,.85);display:flex;align-items:flex-end;justify-content:center;z-index:200}
+.md{background:var(--f1);border-top-left-radius:28px;border-top-right-radius:28px;padding:24px;width:100%;max-width:480px;max-height:90vh;overflow-y:auto;border-top:3px solid var(--v)}
+.mt{font-size:22px;font-weight:900;margin-bottom:6px}
+.ms{font-size:13px;color:var(--t2);margin-bottom:20px}
+.cg{background:var(--f2);border:2px dashed var(--d);border-radius:14px;padding:18px;text-align:center;margin:14px 0}
+.cgt{font-family:'Bebas Neue';font-size:44px;color:var(--d);letter-spacing:8px}
 
-  .liga-item {
-    background: var(--fondo2); border: 1px solid var(--borde); border-radius: var(--radio);
-    padding: 16px; margin-bottom: 12px; cursor: pointer;
-    transition: border-color 0.2s, transform 0.1s;
-  }
-  .liga-item:hover { border-color: var(--verde); transform: translateY(-1px); }
-  .liga-item.activa { border-color: var(--verde); background: #0a1f0a; }
-  .liga-nombre { font-size: 18px; font-weight: 800; }
-  .liga-codigo { font-size: 12px; color: var(--texto2); margin-top: 4px; font-family: monospace; letter-spacing: 2px; }
-  .liga-miembros { font-size: 13px; color: var(--verde); margin-top: 4px; font-weight: 700; }
-
-  /* FORMULARIOS */
-  .form-grupo { margin-bottom: 16px; }
-  .form-label { font-size: 13px; font-weight: 700; color: var(--texto2); margin-bottom: 6px; display: block; text-transform: uppercase; letter-spacing: 0.5px; }
-  .form-input {
-    width: 100%; padding: 14px 16px; border-radius: 12px;
-    background: var(--fondo3); border: 1px solid var(--borde); color: var(--texto);
-    font-family: 'Nunito', sans-serif; font-size: 16px; font-weight: 700;
-    outline: none; transition: border-color 0.2s;
-  }
-  .form-input:focus { border-color: var(--verde); }
-  .form-input.codigo { letter-spacing: 4px; text-transform: uppercase; font-size: 20px; text-align: center; }
-
-  /* PARTIDOS */
-  .partido-card {
-    background: var(--fondo2); border: 1px solid var(--borde); border-radius: var(--radio);
-    padding: 16px; margin-bottom: 12px; position: relative; overflow: hidden;
-  }
-  .partido-card.bloqueado { opacity: 0.7; }
-  .partido-card.con-resultado { border-color: #1a3a1a; }
-  .partido-grupo-badge {
-    position: absolute; top: 12px; right: 12px;
-    background: var(--verde-oscuro); color: var(--dorado);
-    font-size: 11px; font-weight: 900; padding: 2px 8px; border-radius: 20px;
-    letter-spacing: 1px;
-  }
-  .partido-equipos {
-    display: grid; grid-template-columns: 1fr auto 1fr; align-items: center;
-    gap: 8px; margin-bottom: 12px;
-  }
-  .equipo { display: flex; flex-direction: column; align-items: center; gap: 4px; }
-  .equipo-bandera { font-size: 36px; }
-  .equipo-nombre { font-size: 11px; font-weight: 700; text-align: center; line-height: 1.2; }
-  .vs { font-family: 'Bebas Neue'; font-size: 22px; color: var(--texto2); }
-
-  .resultado-real {
-    text-align: center; margin-bottom: 12px;
-    font-family: 'Bebas Neue'; font-size: 36px; color: var(--dorado); letter-spacing: 4px;
-  }
-
-  .pred-inputs {
-    display: grid; grid-template-columns: 1fr 32px 1fr; gap: 8px; align-items: center;
-    margin-bottom: 8px;
-  }
-  .pred-input {
-    background: var(--fondo3); border: 2px solid var(--borde); border-radius: 12px;
-    color: var(--texto); font-family: 'Bebas Neue'; font-size: 32px; text-align: center;
-    padding: 8px 4px; width: 100%; outline: none; transition: border-color 0.2s;
-  }
-  .pred-input:focus { border-color: var(--verde); }
-  .pred-input:disabled { opacity: 0.4; }
-  .pred-guion { font-family: 'Bebas Neue'; font-size: 28px; color: var(--texto2); text-align: center; }
-
-  .mis-puntos-badge {
-    display: inline-flex; align-items: center; gap: 6px;
-    background: #1a3a1a; border: 1px solid var(--verde); border-radius: 20px;
-    padding: 4px 12px; font-size: 13px; font-weight: 700; color: var(--verde);
-  }
-
-  .lock-aviso {
-    font-size: 12px; color: var(--rojo); text-align: center; font-weight: 700;
-    display: flex; align-items: center; justify-content: center; gap: 4px; margin-top: 6px;
-  }
-  .fecha-partido { font-size: 12px; color: var(--texto2); text-align: center; margin-bottom: 8px; }
-
-  /* TABLA */
-  .tabla-posiciones { border-radius: var(--radio); overflow: hidden; margin: 0 16px; }
-  .tabla-header {
-    display: grid; grid-template-columns: 40px 1fr 60px 60px;
-    padding: 10px 16px; background: var(--verde-oscuro);
-    font-size: 11px; font-weight: 900; letter-spacing: 1px; text-transform: uppercase;
-  }
-  .tabla-fila {
-    display: grid; grid-template-columns: 40px 1fr 60px 60px;
-    padding: 14px 16px; border-bottom: 1px solid var(--borde);
-    background: var(--fondo2); align-items: center;
-    transition: background 0.2s;
-  }
-  .tabla-fila:hover { background: var(--fondo3); }
-  .tabla-fila.yo { background: #0a1f0a; border-color: var(--verde); }
-  .tabla-pos { font-family: 'Bebas Neue'; font-size: 22px; color: var(--texto2); }
-  .tabla-pos.top1 { color: var(--dorado); }
-  .tabla-pos.top2 { color: #aaa; }
-  .tabla-pos.top3 { color: #cd7f32; }
-  .tabla-usuario { font-weight: 800; font-size: 15px; }
-  .tabla-partidos { text-align: center; color: var(--texto2); font-size: 13px; }
-  .tabla-puntos { text-align: right; font-family: 'Bebas Neue'; font-size: 26px; color: var(--verde); }
-
-  /* TABS */
-  .tabs { display: flex; gap: 8px; padding: 0 16px; margin-bottom: 16px; overflow-x: auto; }
-  .tabs::-webkit-scrollbar { display: none; }
-  .tab {
-    padding: 8px 16px; border-radius: 20px; border: 1px solid var(--borde);
-    background: var(--fondo2); color: var(--texto2); cursor: pointer; white-space: nowrap;
-    font-family: 'Nunito'; font-size: 13px; font-weight: 700; transition: all 0.2s;
-  }
-  .tab.activo { background: var(--verde); color: #000; border-color: var(--verde); }
-
-  /* ADMIN */
-  .admin-panel { padding: 16px; }
-  .resultado-form { display: grid; grid-template-columns: 1fr 32px 1fr; gap: 8px; align-items: center; margin: 12px 0; }
-  .resultado-form input {
-    background: var(--fondo3); border: 2px solid var(--borde); border-radius: 12px;
-    color: var(--texto); font-family: 'Bebas Neue'; font-size: 32px; text-align: center;
-    padding: 8px; outline: none; transition: border-color 0.2s;
-  }
-  .resultado-form input:focus { border-color: var(--dorado); }
-  .resultado-guion { font-family: 'Bebas Neue'; font-size: 28px; color: var(--texto2); text-align: center; }
-
-  /* MODAL */
-  .modal-overlay {
-    position: fixed; inset: 0; background: rgba(0,0,0,0.85);
-    display: flex; align-items: flex-end; justify-content: center;
-    z-index: 200; padding: 0;
-  }
-  .modal {
-    background: var(--fondo2); border-top-left-radius: 28px; border-top-right-radius: 28px;
-    padding: 24px; width: 100%; max-width: 480px; max-height: 90vh; overflow-y: auto;
-    border-top: 3px solid var(--verde);
-  }
-  .modal-titulo { font-size: 24px; font-weight: 900; margin-bottom: 8px; }
-  .modal-sub { font-size: 14px; color: var(--texto2); margin-bottom: 24px; }
-
-  /* INVITACIÓN */
-  .codigo-grande {
-    background: var(--fondo3); border: 2px dashed var(--dorado); border-radius: 16px;
-    padding: 20px; text-align: center; margin: 16px 0;
-  }
-  .codigo-grande-texto { font-family: 'Bebas Neue'; font-size: 48px; color: var(--dorado); letter-spacing: 8px; }
-
-  /* ESTADOS */
-  .empty-state { text-align: center; padding: 48px 24px; }
-  .empty-estado-icono { font-size: 56px; margin-bottom: 16px; }
-  .empty-estado-titulo { font-size: 20px; font-weight: 800; margin-bottom: 8px; }
-  .empty-estado-texto { color: var(--texto2); font-size: 14px; line-height: 1.6; }
-
-  .loader { text-align: center; padding: 48px; color: var(--texto2); font-size: 14px; }
-  .spinner { width: 40px; height: 40px; border: 3px solid var(--borde); border-top-color: var(--verde); border-radius: 50%; animation: spin 0.8s linear infinite; margin: 0 auto 16px; }
-  @keyframes spin { to { transform: rotate(360deg); } }
-
-  .toast {
-    position: fixed; top: 80px; left: 50%; transform: translateX(-50%);
-    background: var(--verde-oscuro); border: 1px solid var(--verde); border-radius: 12px;
-    padding: 12px 24px; color: white; font-weight: 700; font-size: 14px;
-    z-index: 300; animation: toastIn 0.3s ease; white-space: nowrap;
-  }
-  .toast.error { background: #7f1d1d; border-color: var(--rojo); }
-  @keyframes toastIn { from { opacity: 0; transform: translateX(-50%) translateY(-10px); } to { opacity: 1; transform: translateX(-50%) translateY(0); } }
-
-  /* RONDAS ELIMINATORIAS */
-  .ronda-badge {
-    display: inline-block; padding: 4px 12px; border-radius: 20px;
-    font-size: 11px; font-weight: 900; letter-spacing: 1px; text-transform: uppercase;
-    background: #1a1a4a; color: #7b7bff; border: 1px solid #3a3a8a;
-    margin-bottom: 8px;
-  }
-  .activar-ronda-btn {
-    width: 100%; padding: 14px; border-radius: 14px; border: 2px solid var(--dorado);
-    background: transparent; color: var(--dorado); font-family: 'Nunito'; font-size: 15px;
-    font-weight: 800; cursor: pointer; transition: all 0.2s; margin-bottom: 8px;
-  }
-  .activar-ronda-btn:hover { background: var(--dorado); color: #000; }
-  .activar-ronda-btn.activa { background: var(--dorado); color: #000; }
-
-  /* RESPONSIVE */
-  @media (max-width: 360px) {
-    .equipo-bandera { font-size: 28px; }
-    .pred-input { font-size: 26px; }
-    .login-logo { font-size: 56px; }
-  }
-
-  .separador { height: 1px; background: var(--borde); margin: 16px 0; }
-  .chip { display: inline-flex; align-items: center; gap: 4px; padding: 4px 10px; border-radius: 20px; font-size: 12px; font-weight: 700; }
-  .chip-verde { background: #0a2a0a; color: var(--verde); border: 1px solid #1a4a1a; }
-  .chip-dorado { background: #2a2000; color: var(--dorado); border: 1px solid #4a3a00; }
-  .chip-rojo { background: #2a0000; color: #ff6b6b; border: 1px solid #4a1a1a; }
+.empty{text-align:center;padding:44px 20px}
+.ei{font-size:52px;margin-bottom:14px}
+.et{font-size:18px;font-weight:800;margin-bottom:7px}
+.es{color:var(--t2);font-size:13px;line-height:1.6}
+.ldr{text-align:center;padding:44px;color:var(--t2);font-size:13px}
+.sp{width:38px;height:38px;border:3px solid var(--b);border-top-color:var(--v);border-radius:50%;animation:spin .8s linear infinite;margin:0 auto 14px}
+@keyframes spin{to{transform:rotate(360deg)}}
+.toast{position:fixed;top:76px;left:50%;transform:translateX(-50%);background:var(--vo);border:1px solid var(--v);border-radius:11px;padding:11px 22px;color:#fff;font-weight:700;font-size:13px;z-index:300;animation:tin .3s ease;white-space:nowrap}
+.toast.err{background:#7f1d1d;border-color:var(--r)}
+@keyframes tin{from{opacity:0;transform:translateX(-50%) translateY(-8px)}to{opacity:1;transform:translateX(-50%) translateY(0)}}
+.perfil{display:flex;align-items:center;gap:10px;background:var(--f1);border:1px solid var(--b);border-radius:14px;padding:12px 14px;margin-bottom:16px}
+.pav{width:42px;height:42px;border-radius:50%;border:2px solid var(--v);object-fit:cover}
+.pavlet{width:42px;height:42px;border-radius:50%;background:var(--v);display:flex;align-items:center;justify-content:center;font-size:18px;font-weight:900;color:#000}
+@media(max-width:360px){.pef{font-size:28px}.pinp{font-size:24px}.llogo{font-size:52px}}
 `;
 
-// ─── COMPONENTE PRINCIPAL ─────────────────────────────────────────────
+// ════════════════════════════════════════════════════════════════
+// APP
+// ════════════════════════════════════════════════════════════════
 export default function App() {
-  const [usuario, setUsuario] = useState(null);
-  const [cargando, setCargando] = useState(true);
-  const [pagina, setPagina] = useState("ligas");
-  const [ligaActual, setLigaActual] = useState(null);
-  const [toast, setToast] = useState(null);
-  const [modal, setModal] = useState(null);
+  const [user,setUser]=useState(null);
+  const [loading,setLoading]=useState(true);
+  const [page,setPage]=useState("ligas");
+  const [liga,setLiga]=useState(null);
+  const [toast,setToast]=useState(null);
+  const [modal,setModal]=useState(null);
 
-  const mostrarToast = useCallback((msg, tipo = "ok") => {
-    setToast({ msg, tipo });
-    setTimeout(() => setToast(null), 2800);
-  }, []);
+  const msg=useCallback((m,t="ok")=>{setToast({m,t});setTimeout(()=>setToast(null),2800);},[]);
 
-  useEffect(() => {
-    const unsub = onAuthStateChanged(auth, async (user) => {
-      if (user) {
-        const ref = doc(db, "usuarios", user.uid);
-        await setDoc(ref, {
-          nombre: user.displayName,
-          foto: user.photoURL,
-          email: user.email,
-          ultimoAcceso: serverTimestamp()
-        }, { merge: true });
-        setUsuario(user);
-      } else {
-        setUsuario(null);
-        setLigaActual(null);
-      }
-      setCargando(false);
+  useEffect(()=>{
+    return onAuthStateChanged(auth,async u=>{
+      if(u){
+        await setDoc(doc(db,"usuarios",u.uid),{
+          nombre:u.displayName||u.email?.split("@")[0]||"Jugador",
+          foto:u.photoURL||null,email:u.email,ts:serverTimestamp()
+        },{merge:true});
+        setUser(u);
+      } else{setUser(null);setLiga(null);}
+      setLoading(false);
     });
-    return unsub;
-  }, []);
+  },[]);
 
-  const login = async () => {
-    try { await signInWithPopup(auth, googleProvider); }
-    catch (e) { mostrarToast("No se pudo iniciar sesión", "error"); }
-  };
+  const loginG=async()=>{try{await signInWithPopup(auth,googleProvider);}catch{msg("No se pudo iniciar sesión con Google","err");}};
+  const loginE=async(e,p)=>{try{await signInWithEmailAndPassword(auth,e,p);}catch(er){msg(er.code==="auth/invalid-credential"?"Correo o contraseña incorrectos":"Error al entrar","err");}};
+  const registrar=async(n,e,p)=>{try{const c=await createUserWithEmailAndPassword(auth,e,p);await updateProfile(c.user,{displayName:n});msg("¡Cuenta creada! 🎉");}catch(er){msg(er.code==="auth/email-already-in-use"?"Ese correo ya está registrado":er.code==="auth/weak-password"?"Contraseña mínimo 6 caracteres":"Error al crear cuenta","err");}};
+  const logout=async()=>{await signOut(auth);setLiga(null);setPage("ligas");msg("Sesión cerrada 👋");};
 
-  const logout = async () => {
-    await signOut(auth);
-    setLigaActual(null);
-    setPagina("ligas");
-    mostrarToast("Sesión cerrada");
-  };
+  if(loading) return <><style>{CSS}</style><div className="ldr"><div className="sp"/>Cargando...</div></>;
+  if(!user) return <><style>{CSS}</style><Login onG={loginG} onE={loginE} onR={registrar} msg={msg}/></>;
 
-  if (cargando) return (
+  const esAdmin=liga?.adminId===user.uid;
+  const esSA=user.uid===SUPER_ADMIN_UID;
+
+  return(
     <>
-      <style>{estilos}</style>
-      <div className="loader"><div className="spinner"></div>Cargando...</div>
-    </>
-  );
-
-  if (!usuario) return (
-    <>
-      <style>{estilos}</style>
-      <PantallaLogin onLogin={login} />
-    </>
-  );
-
-  return (
-    <>
-      <style>{estilos}</style>
+      <style>{CSS}</style>
       <div className="app">
-        <Header usuario={usuario} onLogout={logout} ligaActual={ligaActual} />
-        {toast && <div className={`toast ${toast.tipo === "error" ? "error" : ""}`}>{toast.msg}</div>}
-        {modal === "crear_liga" && (
-          <ModalCrearLiga usuario={usuario} onClose={() => setModal(null)} onCreada={(liga) => { setLigaActual(liga); setModal(null); setPagina("partidos"); mostrarToast("¡Liga creada! 🎉"); }} />
-        )}
-        {modal === "unirse_liga" && (
-          <ModalUnirseliga usuario={usuario} onClose={() => setModal(null)} onUnido={(liga) => { setLigaActual(liga); setModal(null); setPagina("partidos"); mostrarToast("¡Te uniste a la liga! 🙌"); }} mostrarToast={mostrarToast} />
-        )}
+        <Hdr user={user} onLogout={logout} liga={liga}/>
+        {toast&&<div className={`toast${toast.t==="err"?" err":""}`}>{toast.m}</div>}
+        {modal==="crear"&&<MCrear user={user} onClose={()=>setModal(null)} onDone={l=>{setLiga(l);setModal(null);setPage("partidos");msg("¡Liga creada! 🎉");}}/>}
+        {modal==="unir"&&<MUnir user={user} onClose={()=>setModal(null)} onDone={l=>{setLiga(l);setModal(null);setPage("partidos");msg("¡Te uniste! 🙌");}} msg={msg}/>}
 
-        {pagina === "ligas" && <PaginaLigas usuario={usuario} onSelect={setLigaActual} ligaActual={ligaActual} onCrear={() => setModal("crear_liga")} onUnirse={() => setModal("unirse_liga")} onIrPartidos={() => setPagina("partidos")} />}
-        {pagina === "partidos" && <PaginaPartidos usuario={usuario} ligaActual={ligaActual} mostrarToast={mostrarToast} />}
-        {pagina === "tabla" && <PaginaTabla usuario={usuario} ligaActual={ligaActual} mostrarToast={mostrarToast} />}
-        {pagina === "admin" && <PaginaAdmin usuario={usuario} ligaActual={ligaActual} mostrarToast={mostrarToast} />}
+        {page==="ligas"&&<Ligas user={user} liga={liga} onSel={l=>{setLiga(l);setPage("partidos");}} onCrear={()=>setModal("crear")} onUnir={()=>setModal("unir")} onLogout={logout} esSA={esSA}/>}
+        {page==="partidos"&&<Partidos user={user} liga={liga} msg={msg}/>}
+        {page==="tabla"&&<Tabla user={user} liga={liga}/>}
+        {page==="admin"&&<Admin user={user} liga={liga} msg={msg}/>}
 
-        <nav className="nav-bottom">
-          <button className={`nav-btn ${pagina === "ligas" ? "activo" : ""}`} onClick={() => setPagina("ligas")}>
-            <span>🏆</span><span>Ligas</span>
-          </button>
-          <button className={`nav-btn ${pagina === "partidos" ? "activo" : ""}`} onClick={() => { if (!ligaActual) { mostrarToast("Primero selecciona una liga", "error"); return; } setPagina("partidos"); }}>
-            <span>⚽</span><span>Partidos</span>
-          </button>
-          <button className={`nav-btn ${pagina === "tabla" ? "activo" : ""}`} onClick={() => { if (!ligaActual) { mostrarToast("Primero selecciona una liga", "error"); return; } setPagina("tabla"); }}>
-            <span>📊</span><span>Tabla</span>
-          </button>
-          {ligaActual?.adminId === usuario.uid && (
-            <button className={`nav-btn ${pagina === "admin" ? "activo" : ""}`} onClick={() => setPagina("admin")}>
-              <span>⚙️</span><span>Admin</span>
-            </button>
-          )}
+        <nav className="nav">
+          <button className={`nb${page==="ligas"?" on":""}`} onClick={()=>setPage("ligas")}><span>🏆</span><span>Ligas</span></button>
+          <button className={`nb${page==="partidos"?" on":""}`} onClick={()=>{if(!liga){msg("Selecciona una liga primero","err");return;}setPage("partidos");}}><span>⚽</span><span>Partidos</span></button>
+          <button className={`nb${page==="tabla"?" on":""}`} onClick={()=>{if(!liga){msg("Selecciona una liga primero","err");return;}setPage("tabla");}}><span>📊</span><span>Tabla</span></button>
+          {esAdmin&&<button className={`nb${page==="admin"?" on":""}`} onClick={()=>setPage("admin")}><span>⚙️</span><span>Admin</span></button>}
         </nav>
       </div>
     </>
   );
 }
 
-// ─── PANTALLA LOGIN ───────────────────────────────────────────────────
-function PantallaLogin({ onLogin }) {
-  return (
-    <div className="login-screen">
-      <div>
-        <div className="login-logo">MUNDIAL<br />2026 🏆</div>
-        <p className="login-sub">La quiniela de tus amigos y familia</p>
-      </div>
-      <div className="login-card">
-        <h2>¡Bienvenido!</h2>
-        <p>Entra con tu cuenta de Google, crea o únete a una liga y empieza a predecir los partidos del Mundial 2026.</p>
-        <button className="btn-google" onClick={onLogin}>
-          <img src="https://www.google.com/favicon.ico" alt="Google" />
-          Entrar con Google
-        </button>
-      </div>
-      <p style={{ color: "rgba(255,255,255,0.3)", fontSize: 12, textAlign: "center" }}>
-        Gratis · Sin contraseñas · Para todas las edades
-      </p>
-    </div>
-  );
-}
+// ════════════════════════════════════════════════════════════════
+// LOGIN
+// ════════════════════════════════════════════════════════════════
+function Login({onG,onE,onR,msg}){
+  const [modo,setModo]=useState("inicio");
+  const [nom,setNom]=useState("");
+  const [em,setEm]=useState("");
+  const [pw,setPw]=useState("");
+  const [busy,setBusy]=useState(false);
 
-// ─── HEADER ───────────────────────────────────────────────────────────
-function Header({ usuario, onLogout, ligaActual }) {
-  return (
-    <div className="header">
-      <div className="header-top">
-        <div>
-          <h1>⚽ QUINIELA 2026</h1>
-          {ligaActual && <p>📍 {ligaActual.nombre}</p>}
-        </div>
-        <img className="avatar" src={usuario.photoURL} alt={usuario.displayName} onClick={onLogout} title="Toca para cerrar sesión" />
-      </div>
-    </div>
-  );
-}
+  const doLogin=async()=>{if(!em||!pw){msg("Completa todos los campos","err");return;}setBusy(true);await onE(em,pw);setBusy(false);};
+  const doReg=async()=>{if(!nom||!em||!pw){msg("Completa todos los campos","err");return;}if(pw.length<6){msg("Contraseña mínimo 6 caracteres","err");return;}setBusy(true);await onR(nom,em,pw);setBusy(false);};
+  const doOlvide=async()=>{if(!em){msg("Escribe tu correo primero","err");return;}try{await sendPasswordResetEmail(auth,em);msg("✅ Revisa tu correo");setModo("entrar");}catch{msg("Correo no encontrado","err");}};
 
-// ─── PÁGINA LIGAS ─────────────────────────────────────────────────────
-function PaginaLigas({ usuario, onSelect, ligaActual, onCrear, onUnirse, onIrPartidos }) {
-  const [ligas, setLigas] = useState([]);
-  const [cargando, setCargando] = useState(true);
-  const [mostrarInvitacion, setMostrarInvitacion] = useState(null);
-
-  useEffect(() => {
-    const q = query(collection(db, "ligas"), where("miembros", "array-contains", usuario.uid));
-    const unsub = onSnapshot(q, (snap) => {
-      setLigas(snap.docs.map(d => ({ id: d.id, ...d.data() })));
-      setCargando(false);
-    });
-    return unsub;
-  }, [usuario.uid]);
-
-  const seleccionarLiga = (liga) => {
-    onSelect(liga);
-    onIrPartidos();
-  };
-
-  const textoInvitacion = (liga) => `🏆 ¡Únete a nuestra quiniela del Mundial 2026!\n\nLiga: *${liga.nombre}*\n🔑 Código: *${liga.codigo}*\n\n1. Descarga la app o entra al link\n2. Entra con Google\n3. Toca "Unirse a liga"\n4. Escribe el código: *${liga.codigo}*\n\n¡A competir! ⚽`;
-
-  if (cargando) return <div className="loader"><div className="spinner"></div>Cargando tus ligas...</div>;
-
-  return (
-    <div className="seccion">
-      <div className="seccion-titulo">🏆 Mis Ligas</div>
-      <div className="seccion-sub">Selecciona una liga para ver partidos y tabla</div>
-
-      <div style={{ display: "flex", gap: 8, marginBottom: 16 }}>
-        <button className="btn btn-primary" style={{ flex: 1 }} onClick={onCrear}>+ Crear liga</button>
-        <button className="btn btn-secundario" style={{ flex: 1 }} onClick={onUnirse}>🔑 Unirme</button>
-      </div>
-
-      {ligas.length === 0 ? (
-        <div className="empty-state">
-          <div className="empty-estado-icono">⚽</div>
-          <div className="empty-estado-titulo">¡Aún no tienes ligas!</div>
-          <div className="empty-estado-texto">Crea una liga nueva o pídele el código a alguien para unirte a la diversión.</div>
-        </div>
-      ) : (
-        ligas.map(liga => (
-          <div key={liga.id} className={`liga-item ${ligaActual?.id === liga.id ? "activa" : ""}`} onClick={() => seleccionarLiga(liga)}>
-            <div className="liga-nombre">{liga.nombre}</div>
-            <div className="liga-codigo">Código: {liga.codigo}</div>
-            <div className="liga-miembros">👥 {liga.miembros?.length || 0} participantes</div>
-            <div style={{ display: "flex", gap: 8, marginTop: 10 }}>
-              <button className="btn btn-secundario" style={{ fontSize: 12, padding: "8px 12px" }}
-                onClick={(e) => { e.stopPropagation(); seleccionarLiga(liga); }}>
-                Ver partidos
-              </button>
-              <button className="btn btn-dorado" style={{ fontSize: 12, padding: "8px 12px" }}
-                onClick={(e) => { e.stopPropagation(); setMostrarInvitacion(liga); }}>
-                📲 Invitar
-              </button>
-            </div>
-          </div>
-        ))
-      )}
-
-      {mostrarInvitacion && (
-        <div className="modal-overlay" onClick={() => setMostrarInvitacion(null)}>
-          <div className="modal" onClick={e => e.stopPropagation()}>
-            <div className="modal-titulo">📲 Invitar amigos</div>
-            <div className="modal-sub">Comparte el código o manda el mensaje por WhatsApp</div>
-            <div className="codigo-grande">
-              <div style={{ fontSize: 12, color: "var(--texto2)", marginBottom: 4 }}>CÓDIGO DE LIGA</div>
-              <div className="codigo-grande-texto">{mostrarInvitacion.codigo}</div>
-            </div>
-            <a
-              href={`https://wa.me/?text=${encodeURIComponent(textoInvitacion(mostrarInvitacion))}`}
-              target="_blank" rel="noopener noreferrer"
-              className="btn btn-primary btn-bloque"
-              style={{ textDecoration: "none", justifyContent: "center", display: "flex", marginBottom: 8 }}
-            >
-              💬 Compartir por WhatsApp
-            </a>
-            <button className="btn btn-secundario btn-bloque" onClick={() => setMostrarInvitacion(null)}>Cerrar</button>
-          </div>
+  return(
+    <div className="lscreen">
+      <div><div className="llogo">MUNDIAL<br/>2026 🏆</div><p className="lsub">La quiniela de tus amigos y familia</p></div>
+      {modo==="inicio"&&(
+        <div className="lcard">
+          <h2>¡Bienvenido!</h2><p>¿Cómo quieres entrar?</p>
+          <button className="goog" onClick={onG} style={{marginBottom:10}}><img src="https://www.google.com/favicon.ico" alt="G"/> Entrar con Google</button>
+          <div className="divider"><hr/><span>o</span><hr/></div>
+          <button className="btn bs bw" style={{marginBottom:8}} onClick={()=>setModo("entrar")}>📧 Entrar con correo</button>
+          <button className="btn bs bw" onClick={()=>setModo("registrar")}>✏️ Crear cuenta nueva</button>
         </div>
       )}
+      {modo==="entrar"&&(
+        <div className="lcard">
+          <h2>Iniciar sesión</h2><p style={{marginBottom:14}}>Entra con tu correo y contraseña</p>
+          <div className="fg"><label className="fl">Correo</label><input className="fi2" type="email" placeholder="tucorreo@gmail.com" value={em} onChange={e=>setEm(e.target.value)} autoFocus/></div>
+          <div className="fg"><label className="fl">Contraseña</label><input className="fi2" type="password" placeholder="••••••••" value={pw} onChange={e=>setPw(e.target.value)} onKeyDown={e=>e.key==="Enter"&&doLogin()}/></div>
+          <button className="btn bp bw" onClick={doLogin} disabled={busy} style={{marginBottom:8}}>{busy?"Entrando...":"✅ Entrar"}</button>
+          <button className="btn bs bw" style={{marginBottom:8}} onClick={()=>setModo("olvide")}>🔑 Olvidé mi contraseña</button>
+          <button className="btn bs bw" onClick={()=>setModo("inicio")}>← Regresar</button>
+        </div>
+      )}
+      {modo==="registrar"&&(
+        <div className="lcard">
+          <h2>Crear cuenta</h2><p style={{marginBottom:14}}>Regístrate con tu nombre y correo</p>
+          <div className="fg"><label className="fl">Tu nombre</label><input className="fi2" type="text" placeholder="Ej: Carlos García" value={nom} onChange={e=>setNom(e.target.value)} autoFocus maxLength={40}/></div>
+          <div className="fg"><label className="fl">Correo</label><input className="fi2" type="email" placeholder="tucorreo@gmail.com" value={em} onChange={e=>setEm(e.target.value)}/></div>
+          <div className="fg"><label className="fl">Contraseña (mín. 6 caracteres)</label><input className="fi2" type="password" placeholder="••••••••" value={pw} onChange={e=>setPw(e.target.value)} onKeyDown={e=>e.key==="Enter"&&doReg()}/></div>
+          <button className="btn bp bw" onClick={doReg} disabled={busy} style={{marginBottom:8}}>{busy?"Creando...":"🎉 Crear mi cuenta"}</button>
+          <button className="btn bs bw" onClick={()=>setModo("inicio")}>← Regresar</button>
+        </div>
+      )}
+      {modo==="olvide"&&(
+        <div className="lcard">
+          <h2>Restablecer contraseña</h2><p style={{marginBottom:14}}>Te enviaremos un link a tu correo</p>
+          <div className="fg"><label className="fl">Correo</label><input className="fi2" type="email" placeholder="tucorreo@gmail.com" value={em} onChange={e=>setEm(e.target.value)} autoFocus/></div>
+          <button className="btn bp bw" onClick={doOlvide} style={{marginBottom:8}}>📧 Enviar link</button>
+          <button className="btn bs bw" onClick={()=>setModo("entrar")}>← Regresar</button>
+        </div>
+      )}
+      <p style={{color:"rgba(255,255,255,.3)",fontSize:11,textAlign:"center"}}>Gratis · Seguro · Para todas las edades</p>
     </div>
   );
 }
 
-// ─── MODAL CREAR LIGA ─────────────────────────────────────────────────
-function ModalCrearLiga({ usuario, onClose, onCreada }) {
-  const [nombre, setNombre] = useState("");
-  const [guardando, setGuardando] = useState(false);
-
-  const crear = async () => {
-    if (!nombre.trim()) return;
-    setGuardando(true);
-    try {
-      const codigo = generarCodigo();
-      const ligaRef = doc(collection(db, "ligas"));
-      await setDoc(ligaRef, {
-        nombre: nombre.trim(),
-        codigo,
-        adminId: usuario.uid,
-        adminNombre: usuario.displayName,
-        miembros: [usuario.uid],
-        miembrosInfo: { [usuario.uid]: { nombre: usuario.displayName, foto: usuario.photoURL } },
-        creada: serverTimestamp(),
-        rondasActivas: [],
-        fase: "grupos"
-      });
-      onCreada({ id: ligaRef.id, nombre: nombre.trim(), codigo, adminId: usuario.uid, miembros: [usuario.uid] });
-    } catch (e) { console.error(e); }
-    setGuardando(false);
-  };
-
-  return (
-    <div className="modal-overlay" onClick={onClose}>
-      <div className="modal" onClick={e => e.stopPropagation()}>
-        <div className="modal-titulo">🏆 Crear nueva liga</div>
-        <div className="modal-sub">Dale un nombre a tu liga. Se generará un código para invitar a tus amigos.</div>
-        <div className="form-grupo">
-          <label className="form-label">Nombre de tu liga</label>
-          <input className="form-input" placeholder="Ej: Los Compadres" value={nombre} onChange={e => setNombre(e.target.value)} onKeyDown={e => e.key === "Enter" && crear()} autoFocus maxLength={40} />
-        </div>
-        <button className="btn btn-primary btn-bloque" onClick={crear} disabled={!nombre.trim() || guardando}>
-          {guardando ? "Creando..." : "✅ Crear liga"}
-        </button>
-        <div style={{ height: 8 }}></div>
-        <button className="btn btn-secundario btn-bloque" onClick={onClose}>Cancelar</button>
+function Hdr({user,onLogout,liga}){
+  return(
+    <div className="hdr">
+      <div className="hdr-top">
+        <div><h1>⚽ QUINIELA 2026</h1>{liga&&<p>📍 {liga.nombre}</p>}</div>
+        {user.photoURL?<img className="av" src={user.photoURL} alt="" onClick={onLogout} title="Toca para cerrar sesión"/>
+          :<div className="av" style={{display:"flex",alignItems:"center",justifyContent:"center",fontWeight:900,fontSize:16,cursor:"pointer"}} onClick={onLogout}>{(user.displayName||user.email||"?")[0].toUpperCase()}</div>}
       </div>
     </div>
   );
 }
 
-// ─── MODAL UNIRSE A LIGA ──────────────────────────────────────────────
-function ModalUnirseliga({ usuario, onClose, onUnido, mostrarToast }) {
-  const [codigo, setCodigo] = useState("");
-  const [buscando, setBuscando] = useState(false);
-
-  const unirse = async () => {
-    const cod = codigo.trim().toUpperCase();
-    if (cod.length !== 6) return;
-    setBuscando(true);
-    try {
-      const q = query(collection(db, "ligas"), where("codigo", "==", cod));
-      const snap = await getDocs(q);
-      if (snap.empty) { mostrarToast("Código no encontrado", "error"); setBuscando(false); return; }
-      const ligaDoc = snap.docs[0];
-      const liga = { id: ligaDoc.id, ...ligaDoc.data() };
-      if (liga.miembros?.includes(usuario.uid)) { mostrarToast("Ya estás en esta liga"); onUnido(liga); return; }
-      await updateDoc(doc(db, "ligas", ligaDoc.id), {
-        miembros: arrayUnion(usuario.uid),
-        [`miembrosInfo.${usuario.uid}`]: { nombre: usuario.displayName, foto: usuario.photoURL }
-      });
-      onUnido({ ...liga, miembros: [...(liga.miembros || []), usuario.uid] });
-    } catch (e) { mostrarToast("Error al unirse", "error"); }
-    setBuscando(false);
-  };
-
-  return (
-    <div className="modal-overlay" onClick={onClose}>
-      <div className="modal" onClick={e => e.stopPropagation()}>
-        <div className="modal-titulo">🔑 Unirme a una liga</div>
-        <div className="modal-sub">Escribe el código de 6 letras que te compartió el organizador</div>
-        <div className="form-grupo">
-          <label className="form-label">Código de liga</label>
-          <input
-            className="form-input codigo"
-            placeholder="XXXXXX"
-            value={codigo}
-            onChange={e => setCodigo(e.target.value.toUpperCase().replace(/[^A-Z0-9]/g, "").slice(0, 6))}
-            autoFocus
-          />
+// ════════════════════════════════════════════════════════════════
+// LIGAS
+// ════════════════════════════════════════════════════════════════
+function Ligas({user,liga,onSel,onCrear,onUnir,onLogout,esSA}){
+  const [ligas,setLigas]=useState([]);
+  const [busy,setBusy]=useState(true);
+  const [inv,setInv]=useState(null);
+  useEffect(()=>{
+    const q=query(collection(db,"ligas"),where("miembros","array-contains",user.uid));
+    return onSnapshot(q,s=>{setLigas(s.docs.map(d=>({id:d.id,...d.data()})));setBusy(false);});
+  },[user.uid]);
+  const wa=l=>`🏆 ¡Únete a nuestra quiniela del Mundial 2026!\n\nLiga: *${l.nombre}*\n🔑 Código: *${l.codigo}*\n\n1. Abre el link de la app\n2. Entra con tu cuenta\n3. Toca "Unirme"\n4. Código: *${l.codigo}*\n\n¡A competir! ⚽`;
+  const nom=user.displayName||user.email?.split("@")[0]||"Jugador";
+  if(busy) return <div className="ldr"><div className="sp"/>Cargando ligas...</div>;
+  return(
+    <div className="sec">
+      {/* Perfil */}
+      <div className="perfil">
+        {user.photoURL?<img className="pav" src={user.photoURL} alt=""/>:<div className="pavlet">{nom[0].toUpperCase()}</div>}
+        <div style={{flex:1,minWidth:0}}>
+          <div style={{fontWeight:800,fontSize:14,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{nom}</div>
+          <div style={{fontSize:11,color:"var(--t2)",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{user.email}</div>
         </div>
-        <button className="btn btn-primary btn-bloque" onClick={unirse} disabled={codigo.length !== 6 || buscando}>
-          {buscando ? "Buscando..." : "✅ Unirme a la liga"}
-        </button>
-        <div style={{ height: 8 }}></div>
-        <button className="btn btn-secundario btn-bloque" onClick={onClose}>Cancelar</button>
+        <button className="btn br" style={{fontSize:12,padding:"8px 12px"}} onClick={onLogout}>🚪 Salir</button>
       </div>
+
+      <div className="stit">🏆 Mis Ligas</div>
+      <div className="ssub">{esSA?"Crea o únete a una liga":"Únete con el código del organizador"}</div>
+      <div style={{display:"flex",gap:8,marginBottom:14}}>
+        {esSA&&<button className="btn bp" style={{flex:1}} onClick={onCrear}>+ Crear liga</button>}
+        <button className="btn bs" style={{flex:esSA?1:"1 1 100%"}} onClick={onUnir}>🔑 Unirme a una liga</button>
+      </div>
+      {ligas.length===0?(
+        <div className="empty"><div className="ei">⚽</div><div className="et">¡Aún no estás en ninguna liga!</div><div className="es">Pide el código de 6 letras al organizador y toca "Unirme a una liga".</div></div>
+      ):ligas.map(l=>(
+        <div key={l.id} className={`fi${liga?.id===l.id?" on":""}`} onClick={()=>onSel(l)}>
+          <div className="fn">{l.nombre}</div>
+          <div className="fc">Código: {l.codigo}</div>
+          <div className="fm">👥 {l.miembros?.length||0} participantes</div>
+          <div style={{display:"flex",gap:8,marginTop:9}}>
+            <button className="btn bs" style={{fontSize:11,padding:"7px 11px"}} onClick={e=>{e.stopPropagation();onSel(l);}}>Ver partidos</button>
+            <button className="btn bd" style={{fontSize:11,padding:"7px 11px"}} onClick={e=>{e.stopPropagation();setInv(l);}}>📲 Invitar</button>
+          </div>
+        </div>
+      ))}
+      {inv&&(
+        <div className="mo" onClick={()=>setInv(null)}>
+          <div className="md" onClick={e=>e.stopPropagation()}>
+            <div className="mt">📲 Invitar amigos</div>
+            <div className="ms">Comparte el código o manda el mensaje por WhatsApp</div>
+            <div className="cg"><div style={{fontSize:11,color:"var(--t2)",marginBottom:3}}>CÓDIGO DE LIGA</div><div className="cgt">{inv.codigo}</div></div>
+            <a href={`https://wa.me/?text=${encodeURIComponent(wa(inv))}`} target="_blank" rel="noopener noreferrer"
+               className="btn bp bw" style={{textDecoration:"none",justifyContent:"center",display:"flex",marginBottom:8}}>💬 Compartir por WhatsApp</a>
+            <button className="btn bs bw" onClick={()=>setInv(null)}>Cerrar</button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
 
-// ─── PÁGINA PARTIDOS ──────────────────────────────────────────────────
-function PaginaPartidos({ usuario, ligaActual, mostrarToast }) {
-  const [grupoActivo, setGrupoActivo] = useState("A");
-  const [predicciones, setPredicciones] = useState({});
-  const [resultados, setResultados] = useState({});
-  const [guardando, setGuardando] = useState({});
+function MCrear({user,onClose,onDone}){
+  const [nom,setNom]=useState("");const [busy,setBusy]=useState(false);
+  const crear=async()=>{if(!nom.trim())return;setBusy(true);const cod=genCodigo();const ref=doc(collection(db,"ligas"));await setDoc(ref,{nombre:nom.trim(),codigo:cod,adminId:user.uid,adminNombre:user.displayName||user.email,miembros:[user.uid],miembrosInfo:{[user.uid]:{nombre:user.displayName||user.email,foto:user.photoURL||null}},creada:serverTimestamp(),fase:"grupos"});onDone({id:ref.id,nombre:nom.trim(),codigo:cod,adminId:user.uid,miembros:[user.uid]});setBusy(false);};
+  return(<div className="mo" onClick={onClose}><div className="md" onClick={e=>e.stopPropagation()}><div className="mt">🏆 Crear nueva liga</div><div className="ms">Dale un nombre — se generará un código de invitación</div><div className="fg"><label className="fl">Nombre de la liga</label><input className="fi2" placeholder="Ej: Los Compadres" value={nom} onChange={e=>setNom(e.target.value)} onKeyDown={e=>e.key==="Enter"&&crear()} autoFocus maxLength={40}/></div><button className="btn bp bw" onClick={crear} disabled={!nom.trim()||busy}>{busy?"Creando...":"✅ Crear liga"}</button><div style={{height:8}}/><button className="btn bs bw" onClick={onClose}>Cancelar</button></div></div>);
+}
 
-  useEffect(() => {
-    if (!ligaActual) return;
-    const unsub = onSnapshot(doc(db, "predicciones", `${ligaActual.id}_${usuario.uid}`), (snap) => {
-      if (snap.exists()) setPredicciones(snap.data());
-    });
-    return unsub;
-  }, [ligaActual, usuario.uid]);
+function MUnir({user,onClose,onDone,msg}){
+  const [cod,setCod]=useState("");const [busy,setBusy]=useState(false);
+  const unir=async()=>{const c=cod.trim().toUpperCase();if(c.length!==6)return;setBusy(true);const snap=await getDocs(query(collection(db,"ligas"),where("codigo","==",c)));if(snap.empty){msg("Código no encontrado","err");setBusy(false);return;}const d=snap.docs[0];const l={id:d.id,...d.data()};if(l.miembros?.includes(user.uid)){onDone(l);return;}await setDoc(doc(db,"ligas",d.id),{miembros:arrayUnion(user.uid),[`miembrosInfo.${user.uid}`]:{nombre:user.displayName||user.email,foto:user.photoURL||null}},{merge:true});onDone({...l,miembros:[...(l.miembros||[]),user.uid]});setBusy(false);};
+  return(<div className="mo" onClick={onClose}><div className="md" onClick={e=>e.stopPropagation()}><div className="mt">🔑 Unirme a una liga</div><div className="ms">Escribe el código de 6 letras que te compartió el organizador</div><div className="fg"><label className="fl">Código de liga</label><input className="fi2 cod" placeholder="XXXXXX" value={cod} onChange={e=>setCod(e.target.value.toUpperCase().replace(/[^A-Z0-9]/g,"").slice(0,6))} autoFocus/></div><button className="btn bp bw" onClick={unir} disabled={cod.length!==6||busy}>{busy?"Buscando...":"✅ Unirme"}</button><div style={{height:8}}/><button className="btn bs bw" onClick={onClose}>Cancelar</button></div></div>);
+}
 
-  useEffect(() => {
-    if (!ligaActual) return;
-    const unsub = onSnapshot(doc(db, "resultados", ligaActual.id), (snap) => {
-      if (snap.exists()) setResultados(snap.data());
-    });
-    return unsub;
-  }, [ligaActual]);
-
-  if (!ligaActual) return (
-    <div className="empty-state">
-      <div className="empty-estado-icono">🏆</div>
-      <div className="empty-estado-titulo">Selecciona una liga</div>
-      <div className="empty-estado-texto">Ve a la sección Ligas y selecciona una para ver los partidos.</div>
-    </div>
-  );
-
-  const partidosGrupo = PARTIDOS_GRUPOS.filter(p => p.grupo === grupoActivo);
-
-  const guardarPrediccion = async (partidoId, local, visitante) => {
-    const partido = PARTIDOS_GRUPOS.find(p => p.id === partidoId);
-    if (esBloqueado(partido.fecha)) { mostrarToast("⛔ ¡Predicción bloqueada! El partido empieza pronto", "error"); return; }
-    if (local === "" || visitante === "" || isNaN(local) || isNaN(visitante)) return;
-
-    setGuardando(g => ({ ...g, [partidoId]: true }));
-    try {
-      const ref = doc(db, "predicciones", `${ligaActual.id}_${usuario.uid}`);
-      await setDoc(ref, {
-        [`${partidoId}_local`]: parseInt(local),
-        [`${partidoId}_visitante`]: parseInt(visitante),
-        [`${partidoId}_ts`]: new Date().toISOString(),
-        usuarioId: usuario.uid,
-        ligaId: ligaActual.id,
-        nombre: usuario.displayName,
-        foto: usuario.photoURL
-      }, { merge: true });
-      mostrarToast("✅ Predicción guardada");
-    } catch (e) { mostrarToast("Error al guardar", "error"); }
-    setGuardando(g => ({ ...g, [partidoId]: false }));
-  };
-
-  const calcPuntosPartido = (partidoId) => {
-    const rL = resultados[`${partidoId}_local`];
-    const rV = resultados[`${partidoId}_visitante`];
-    const pL = predicciones[`${partidoId}_local`];
-    const pV = predicciones[`${partidoId}_visitante`];
-    if (rL === undefined || pL === undefined) return null;
-    return calcularPuntos({ local: pL, visitante: pV }, { local: rL, visitante: rV });
-  };
-
-  return (
+// ════════════════════════════════════════════════════════════════
+// PARTIDOS
+// ════════════════════════════════════════════════════════════════
+function Partidos({user,liga,msg}){
+  const [fase,setFase]=useState("grupos");
+  const [ligaD,setLigaD]=useState(null);
+  useEffect(()=>{if(!liga)return;return onSnapshot(doc(db,"ligas",liga.id),s=>{if(s.exists())setLigaD({id:s.id,...s.data()});});},[liga]);
+  if(!liga) return <div className="empty"><div className="ei">🏆</div><div className="et">Selecciona una liga</div><div className="es">Ve a Ligas y selecciona una para ver los partidos.</div></div>;
+  const rActivas=ligaD?.rondasActivas||[];
+  return(
     <div>
-      <div style={{ padding: "12px 16px 0" }}>
-        <div style={{ fontSize: 18, fontWeight: 800, marginBottom: 4 }}>⚽ Fase de Grupos</div>
-        <div style={{ fontSize: 13, color: "var(--texto2)", marginBottom: 12 }}>Toca un partido para ingresar tu predicción</div>
+      <div style={{padding:"12px 16px 0"}}><div style={{fontSize:17,fontWeight:800,marginBottom:3}}>⚽ Partidos</div><div style={{fontSize:12,color:"var(--t2)",marginBottom:10}}>Ingresa tus predicciones antes del cierre</div></div>
+      <div className="ftabs">
+        <button className={`ftab${fase==="grupos"?" on":""}`} onClick={()=>setFase("grupos")}>⚽ Grupos</button>
+        <button className={`ftab${fase==="elim"?" onm":""}`} style={fase==="elim"?{background:"var(--m)",color:"#fff"}:{}} onClick={()=>setFase("elim")}>🏆 Eliminatoria</button>
+        <button className={`ftab${fase==="camp"?" on":""}`} style={fase==="camp"?{background:"var(--d)",color:"#000"}:{}} onClick={()=>setFase("camp")}>👑 Campeón</button>
       </div>
+      {fase==="grupos"&&<Grupos user={user} liga={liga} msg={msg}/>}
+      {fase==="elim"&&<Elim user={user} liga={liga} ligaD={ligaD} rActivas={rActivas} msg={msg}/>}
+      {fase==="camp"&&<Campeon user={user} liga={liga} msg={msg}/>}
+    </div>
+  );
+}
 
-      <div className="tabs">
-        {Object.keys(GRUPOS).map(g => (
-          <button key={g} className={`tab ${grupoActivo === g ? "activo" : ""}`} onClick={() => setGrupoActivo(g)}>
-            Grupo {g}
-          </button>
+// ─── GRUPOS ───────────────────────────────────────────────────
+function Grupos({user,liga,msg}){
+  const [grp,setGrp]=useState("A");
+  const [preds,setPreds]=useState({});
+  const [res,setRes]=useState({});
+  useEffect(()=>{if(!liga)return;return onSnapshot(doc(db,"predicciones",`${liga.id}_${user.uid}`),s=>{if(s.exists())setPreds(s.data());});},[liga,user.uid]);
+  useEffect(()=>{if(!liga)return;return onSnapshot(doc(db,"resultados",liga.id),s=>{if(s.exists())setRes(s.data());});},[liga]);
+  const guardar=async(pid,l,v)=>{
+    const p=PG.find(x=>x.id===pid);
+    if(bloqueado(p.f)){msg("⛔ Predicción bloqueada — el partido empieza pronto","err");return;}
+    if(l===""||v===""||isNaN(l)||isNaN(v))return;
+    await setDoc(doc(db,"predicciones",`${liga.id}_${user.uid}`),{[`${pid}_l`]:parseInt(l),[`${pid}_v`]:parseInt(v),uid:user.uid,lid:liga.id,nom:user.displayName||user.email,foto:user.photoURL||null},{merge:true});
+    msg("✅ Predicción guardada");
+  };
+  return(
+    <>
+      <div className="tabs">{Object.keys(GRUPOS).map(g=><button key={g} className={`tab${grp===g?" on":""}`} onClick={()=>setGrp(g)}>Grupo {g}</button>)}</div>
+      <div style={{padding:"0 16px"}}>
+        <div style={{fontSize:11,color:"var(--t2)",marginBottom:10,display:"flex",gap:6,flexWrap:"wrap"}}>{GRUPOS[grp].map(e=><span key={e}>{F(e)} {e}</span>)}</div>
+        {PG.filter(p=>p.g===grp).map(p=>(
+          <PCard key={p.id} p={p} lok={bloqueado(p.f)}
+            rL={res[`${p.id}_l`]} rV={res[`${p.id}_v`]}
+            mL={preds[`${p.id}_l`]} mV={preds[`${p.id}_v`]}
+            onSave={(l,v)=>guardar(p.id,l,v)}/>
         ))}
       </div>
-
-      <div style={{ padding: "0 16px" }}>
-        <div style={{ fontSize: 12, color: "var(--texto2)", marginBottom: 12, display: "flex", gap: 8, flexWrap: "wrap" }}>
-          {GRUPOS[grupoActivo].map(eq => <span key={eq}>{flag(eq)} {eq}</span>)}
-        </div>
-
-        {partidosGrupo.map(partido => {
-          const bloqueado = esBloqueado(partido.fecha);
-          const rLocal = resultados[`${partido.id}_local`];
-          const rVisitante = resultados[`${partido.id}_visitante`];
-          const tieneResultado = rLocal !== undefined;
-          const puntosObtenidos = calcPuntosPartido(partido.id);
-          const miPredL = predicciones[`${partido.id}_local`];
-          const miPredV = predicciones[`${partido.id}_visitante`];
-          const [predLocal, setPredLocal] = useState(miPredL !== undefined ? String(miPredL) : "");
-          const [predVisitante, setPredVisitante] = useState(miPredV !== undefined ? String(miPredV) : "");
-
-          return (
-            <PartidoCard
-              key={partido.id}
-              partido={partido}
-              bloqueado={bloqueado}
-              rLocal={rLocal}
-              rVisitante={rVisitante}
-              tieneResultado={tieneResultado}
-              puntosObtenidos={puntosObtenidos}
-              miPredL={miPredL}
-              miPredV={miPredV}
-              guardando={guardando[partido.id]}
-              onGuardar={(l, v) => guardarPrediccion(partido.id, l, v)}
-            />
-          );
-        })}
-      </div>
-    </div>
+    </>
   );
 }
 
-function PartidoCard({ partido, bloqueado, rLocal, rVisitante, tieneResultado, puntosObtenidos, miPredL, miPredV, guardando, onGuardar }) {
-  const [l, setL] = useState(miPredL !== undefined ? String(miPredL) : "");
-  const [v, setV] = useState(miPredV !== undefined ? String(miPredV) : "");
-
-  const fecha = new Date(partido.fecha);
-  const fechaTexto = fecha.toLocaleDateString("es-MX", { weekday: "short", day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" });
-
-  return (
-    <div className={`partido-card ${bloqueado ? "bloqueado" : ""} ${tieneResultado ? "con-resultado" : ""}`}>
-      <div className="partido-grupo-badge">GRP {partido.grupo}</div>
-      <div className="fecha-partido">📅 {fechaTexto} · {partido.estadio}</div>
-
-      <div className="partido-equipos">
-        <div className="equipo">
-          <div className="equipo-bandera">{flag(partido.local)}</div>
-          <div className="equipo-nombre">{partido.local}</div>
-        </div>
+function PCard({p,lok,rL,rV,mL,mV,onSave}){
+  const [l,setL]=useState(mL!==undefined?String(mL):"");
+  const [v,setV]=useState(mV!==undefined?String(mV):"");
+  const [busy,setBusy]=useState(false);
+  const tieneR=rL!==undefined;
+  const pts=tieneR&&mL!==undefined?calcPuntos({l:mL,v:mV},{l:rL,v:rV}):null;
+  const fecha=new Date(p.f).toLocaleDateString("es-MX",{weekday:"short",day:"numeric",month:"short",hour:"2-digit",minute:"2-digit"});
+  return(
+    <div className={`pc${lok?" lok":""}${tieneR?" res":""}`}>
+      <div className="pbadge">GRP {p.g}</div>
+      <div className="fp">📅 {fecha} · {p.e}</div>
+      <div className="peqs">
+        <div className="peq"><div className="pef">{F(p.l)}</div><div className="pen">{p.l}</div></div>
         <div className="vs">VS</div>
-        <div className="equipo">
-          <div className="equipo-bandera">{flag(partido.visitante)}</div>
-          <div className="equipo-nombre">{partido.visitante}</div>
+        <div className="peq"><div className="pef">{F(p.v)}</div><div className="pen">{p.v}</div></div>
+      </div>
+      {tieneR&&<div className="rreal">{rL} — {rV}</div>}
+      {!lok?(
+        <>
+          <div style={{fontSize:11,color:"var(--t2)",textAlign:"center",marginBottom:5}}>{mL!==undefined?"Tu predicción actual:":"Ingresa tu predicción:"}</div>
+          <div className="pinps">
+            <input className="pinp" type="number" min="0" max="99" placeholder="0" value={l} onChange={e=>setL(e.target.value.replace(/[^0-9]/g,"").slice(0,2))}/>
+            <div className="pg">-</div>
+            <input className="pinp" type="number" min="0" max="99" placeholder="0" value={v} onChange={e=>setV(e.target.value.replace(/[^0-9]/g,"").slice(0,2))}/>
+          </div>
+          <button className="btn bp bw" onClick={async()=>{setBusy(true);await onSave(l,v);setBusy(false);}} disabled={l===""||v===""||busy} style={{fontSize:13,padding:"11px"}}>
+            {busy?"Guardando...":mL!==undefined?"✏️ Actualizar":"✅ Guardar predicción"}
+          </button>
+        </>
+      ):(
+        <div>
+          {mL!==undefined?<div style={{textAlign:"center"}}><div style={{fontSize:12,color:"var(--t2)",marginBottom:3}}>Tu predicción:</div><div style={{fontFamily:"'Bebas Neue'",fontSize:30,color:pts!==null?"var(--d)":"white"}}>{mL} — {mV}</div></div>
+          :<div className="lav">🔒 Predicciones cerradas</div>}
         </div>
+      )}
+      {pts!==null&&<div style={{textAlign:"center",marginTop:7}}><span className="ppb">⭐ {pts} puntos</span></div>}
+    </div>
+  );
+}
+
+// ─── ELIMINATORIA ─────────────────────────────────────────────
+function Elim({user,liga,ligaD,rActivas,msg}){
+  const [ronda,setRonda]=useState(null);
+  const [elimD,setElimD]=useState({});
+  const [resE,setResE]=useState({});
+  const [misP,setMisP]=useState({});
+  useEffect(()=>{if(!liga)return;return onSnapshot(doc(db,"resultados",liga.id),s=>{if(s.exists())setResE(s.data()?.eliminatoria||{});});},[liga]);
+  useEffect(()=>{if(!liga)return;return onSnapshot(doc(db,"predicciones",`${liga.id}_${user.uid}`),s=>{if(s.exists())setMisP(s.data()?.eliminatoria||{});});},[liga,user.uid]);
+  useEffect(()=>{if(!liga)return;return onSnapshot(doc(db,"eliminatoria",liga.id),s=>{if(s.exists())setElimD(s.data());});},[liga]);
+  useEffect(()=>{if(rActivas?.length>0&&!ronda)setRonda(rActivas[rActivas.length-1]);},[rActivas]);
+
+  if(!rActivas||rActivas.length===0) return(
+    <div style={{padding:"0 16px"}}><div style={{textAlign:"center",padding:"36px 20px"}}><div style={{fontSize:44,marginBottom:12}}>🔒</div><div style={{fontWeight:800,fontSize:17,marginBottom:7}}>Fase eliminatoria no iniciada</div><div style={{color:"var(--t2)",fontSize:13,lineHeight:1.6}}>El administrador la activará cuando termine la fase de grupos.<br/>¡Aprovecha y pon tus predicciones de grupos!</div></div></div>
+  );
+
+  const guardar=async(pid,eq)=>{
+    await setDoc(doc(db,"predicciones",`${liga.id}_${user.uid}`),{eliminatoria:{[pid]:eq},uid:user.uid,lid:liga.id},{merge:true});
+    msg("✅ Predicción guardada");
+  };
+
+  return(
+    <div style={{padding:"0 16px"}}>
+      <div className="tabs" style={{paddingLeft:0,paddingRight:0}}>
+        {RONDAS.filter(r=>rActivas.includes(r.id)).map(r=>(
+          <button key={r.id} className={`tab${ronda===r.id?" onm":""}`} style={ronda===r.id?{background:"var(--m)",color:"#fff",borderColor:"var(--m)"}:{}} onClick={()=>setRonda(r.id)}>{r.nombre}</button>
+        ))}
+      </div>
+      {ronda&&(()=>{
+        const info=RONDAS.find(r=>r.id===ronda);
+        const pts=ronda==="fin"?10:4;
+        const partidos=elimD[ronda]||[];
+        if(partidos.length===0) return <div style={{textAlign:"center",padding:"28px",color:"var(--t2)"}}><div style={{fontSize:36,marginBottom:8}}>⏳</div><div style={{fontWeight:800}}>Preparando enfrentamientos...</div></div>;
+        return(
+          <>
+            <div className="rhdr"><span style={{fontSize:26}}>🏆</span><div><h3>{info?.nombre}</h3><div style={{fontSize:11,color:"var(--t2)"}}>Toca el equipo que crees que avanzará</div></div></div>
+            {partidos.map((pt,i)=>{
+              const pid=`${ronda}_${i}`;
+              const gan=resE[pid];
+              const mi=misP[pid];
+              const lok=!!gan;
+              return(
+                <div key={pid} className={`ep${gan?" res":""}`}>
+                  <div style={{fontSize:11,color:"var(--t2)",marginBottom:8,display:"flex",justifyContent:"space-between"}}>
+                    <span>Partido {i+1}</span>
+                    {gan&&<span style={{color:"var(--d)",fontWeight:800}}>✓ Resultado oficial</span>}
+                  </div>
+                  {[pt.equipo1,pt.equipo2].map(eq=>{
+                    const esG=gan===eq,esE=mi===eq;
+                    let cls="";
+                    if(gan){cls=esG?"gan":"";if(esE)cls=esG?"ok":"fail";}
+                    else if(esE)cls="sel";
+                    return(
+                      <div key={eq} className={`eo${cls?" "+cls:""}`} onClick={()=>!lok&&guardar(pid,eq)} style={lok&&!esE?{cursor:"default"}:{}}>
+                        <span style={{fontSize:26}}>{F(eq)}</span>
+                        <span style={{flex:1}}>{eq}</span>
+                        {esE&&!gan&&<span style={{fontSize:12}}>✓ Tu elección</span>}
+                        {esG&&<span style={{color:"var(--d)",fontSize:12}}>🏆 Ganador</span>}
+                        {esE&&gan&&esG&&<span style={{color:"var(--v)",fontSize:12}}>⭐ +{pts} pts</span>}
+                        {esE&&gan&&!esG&&<span style={{color:"var(--r)",fontSize:12}}>✗ 0 pts</span>}
+                      </div>
+                    );
+                  })}
+                  {!lok&&!mi&&<div style={{fontSize:11,color:"var(--t2)",textAlign:"center",marginTop:5}}>👆 Toca el equipo que crees que ganará</div>}
+                </div>
+              );
+            })}
+          </>
+        );
+      })()}
+    </div>
+  );
+}
+
+// ─── CAMPEÓN ──────────────────────────────────────────────────
+function Campeon({user,liga,msg}){
+  const [miPred,setMiPred]=useState(null);
+  const [campeonReal,setCampeonReal]=useState(null);
+  const [cargando,setCargando]=useState(true);
+  const lok=bloqueado(FECHA_CIERRE_CAMPEON);
+
+  useEffect(()=>{
+    if(!liga)return;
+    const u1=onSnapshot(doc(db,"predicciones",`${liga.id}_${user.uid}`),s=>{if(s.exists())setMiPred(s.data()?.campeon||null);setCargando(false);});
+    const u2=onSnapshot(doc(db,"resultados",liga.id),s=>{if(s.exists())setCampeonReal(s.data()?.campeon||null);});
+    return()=>{u1();u2();};
+  },[liga,user.uid]);
+
+  const elegir=async(eq)=>{
+    if(lok){msg("⛔ Ya cerró el plazo para elegir campeón","err");return;}
+    await setDoc(doc(db,"predicciones",`${liga.id}_${user.uid}`),{campeon:eq,uid:user.uid,lid:liga.id},{merge:true});
+    msg(`✅ Elegiste a ${eq} como campeón`);
+  };
+
+  if(cargando) return <div className="ldr"><div className="sp"/>Cargando...</div>;
+
+  const acerto=campeonReal&&miPred===campeonReal;
+  const fallo=campeonReal&&miPred&&miPred!==campeonReal;
+
+  return(
+    <div style={{padding:"0 16px"}}>
+      <div className="camp-card">
+        <div className="camp-titulo">👑 ¿Quién ganará el Mundial?</div>
+        <div className="camp-sub">
+          {campeonReal
+            ? `🏆 Campeón oficial: ${F(campeonReal)} ${campeonReal}`
+            : lok
+              ? "⏰ El plazo para elegir ya cerró"
+              : "Elige el equipo que crees que ganará el Mundial. ¡Vale 10 puntos si aciertas!"}
+        </div>
+        {miPred&&(
+          <div className={`camp-sel${acerto?" acerto":fallo?" fallo":" elegido"}`} style={{marginBottom:12,cursor:"default"}}>
+            <span style={{fontSize:28}}>{F(miPred)}</span>
+            <div style={{flex:1}}>
+              <div style={{fontWeight:800}}>{miPred}</div>
+              <div style={{fontSize:11,color:"var(--t2)"}}>Tu elección</div>
+            </div>
+            {acerto&&<span style={{color:"var(--v)",fontWeight:800}}>⭐ +10 pts</span>}
+            {fallo&&<span style={{color:"var(--r)",fontWeight:800}}>✗ 0 pts</span>}
+            {!campeonReal&&<span style={{color:"var(--d)",fontSize:12}}>Pendiente</span>}
+          </div>
+        )}
+        {campeonReal&&(
+          <div className="camp-sel gan" style={{cursor:"default",justifyContent:"center",gap:16}}>
+            <span style={{fontSize:36}}>{F(campeonReal)}</span>
+            <div><div style={{fontWeight:900,fontSize:16}}>🏆 {campeonReal}</div><div style={{fontSize:12,color:"var(--d)"}}>Campeón del Mundial 2026</div></div>
+          </div>
+        )}
       </div>
 
-      {tieneResultado && (
-        <div className="resultado-real">{rLocal} — {rVisitante}</div>
-      )}
-
-      {!bloqueado && (
-        <div>
-          <div style={{ fontSize: 12, color: "var(--texto2)", textAlign: "center", marginBottom: 6 }}>
-            {miPredL !== undefined ? "Tu predicción actual:" : "Ingresa tu predicción:"}
+      {!lok&&!campeonReal&&(
+        <>
+          <div style={{fontSize:13,fontWeight:700,color:"var(--t2)",marginBottom:10,paddingLeft:2}}>
+            {miPred?"Cambia tu elección:" : "Elige tu campeón:"}
           </div>
-          <div className="pred-inputs">
-            <input
-              className="pred-input"
-              type="number" min="0" max="99"
-              placeholder="0" value={l}
-              onChange={e => setL(e.target.value.replace(/[^0-9]/g, "").slice(0, 2))}
-            />
-            <div className="pred-guion">-</div>
-            <input
-              className="pred-input"
-              type="number" min="0" max="99"
-              placeholder="0" value={v}
-              onChange={e => setV(e.target.value.replace(/[^0-9]/g, "").slice(0, 2))}
-            />
-          </div>
-          <button
-            className="btn btn-primary btn-bloque"
-            onClick={() => onGuardar(l, v)}
-            disabled={l === "" || v === "" || guardando}
-            style={{ fontSize: 14, padding: "12px" }}
-          >
-            {guardando ? "Guardando..." : miPredL !== undefined ? "✏️ Actualizar predicción" : "✅ Guardar predicción"}
-          </button>
-        </div>
-      )}
-
-      {bloqueado && (
-        <div>
-          {miPredL !== undefined ? (
-            <div style={{ textAlign: "center" }}>
-              <div style={{ fontSize: 13, color: "var(--texto2)", marginBottom: 4 }}>Tu predicción:</div>
-              <div style={{ fontFamily: "'Bebas Neue'", fontSize: 32, color: puntosObtenidos !== null ? "var(--dorado)" : "white" }}>
-                {miPredL} — {miPredV}
+          <div className="camp-grid">
+            {TODOS_EQUIPOS.map(eq=>(
+              <div key={eq} className={`camp-sel${miPred===eq?" elegido":""}`} onClick={()=>elegir(eq)}>
+                <span style={{fontSize:22}}>{F(eq)}</span>
+                <span style={{fontSize:12,flex:1}}>{eq}</span>
+                {miPred===eq&&<span style={{fontSize:16}}>✓</span>}
               </div>
-            </div>
-          ) : (
-            <div className="lock-aviso">🔒 Predicciones cerradas para este partido</div>
-          )}
-        </div>
+            ))}
+          </div>
+        </>
       )}
 
-      {puntosObtenidos !== null && (
-        <div style={{ textAlign: "center", marginTop: 8 }}>
-          <span className="mis-puntos-badge">⭐ {puntosObtenidos} puntos</span>
-        </div>
+      {lok&&!campeonReal&&!miPred&&(
+        <div className="camp-bloq">🔒 No elegiste campeón antes del cierre. Sin puntos en esta categoría.</div>
       )}
     </div>
   );
 }
 
-// ─── PÁGINA TABLA ─────────────────────────────────────────────────────
-function PaginaTabla({ usuario, ligaActual, mostrarToast }) {
-  const [tabla, setTabla] = useState([]);
-  const [cargando, setCargando] = useState(true);
+// ════════════════════════════════════════════════════════════════
+// TABLA
+// ════════════════════════════════════════════════════════════════
+function Tabla({user,liga}){
+  const [tabla,setTabla]=useState([]);
+  const [cargando,setCargando]=useState(true);
 
-  useEffect(() => {
-    if (!ligaActual) return;
+  useEffect(()=>{
+    if(!liga)return;
     setCargando(true);
+    const unsub=onSnapshot(doc(db,"resultados",liga.id),async resSnap=>{
+      const res=resSnap.exists()?resSnap.data():{};
+      const resE=res.eliminatoria||{};
+      const campeonReal=res.campeon||null;
+      const [ld,ed]=await Promise.all([getDoc(doc(db,"ligas",liga.id)),getDoc(doc(db,"eliminatoria",liga.id))]);
+      const ldata=ld.data()||{};
+      const elimD=ed.exists()?ed.data():{};
+      const miembros=ldata.miembros||[];
+      const mInfo=ldata.miembrosInfo||{};
 
-    const unsub = onSnapshot(doc(db, "resultados", ligaActual.id), async (resSnap) => {
-      const resultados = resSnap.exists() ? resSnap.data() : {};
-      const ligaDoc = await getDoc(doc(db, "ligas", ligaActual.id));
-      const ligaData = ligaDoc.data();
-      const miembros = ligaData?.miembros || [];
-      const miembrosInfo = ligaData?.miembrosInfo || {};
+      const rows=await Promise.all(miembros.map(async uid=>{
+        const ps=await getDoc(doc(db,"predicciones",`${liga.id}_${uid}`));
+        const pred=ps.exists()?ps.data():{};
+        const predE=pred.eliminatoria||{};
+        let pts=0,j=0;
 
-      const tablaData = await Promise.all(miembros.map(async (uid) => {
-        const predSnap = await getDoc(doc(db, "predicciones", `${ligaActual.id}_${uid}`));
-        const pred = predSnap.exists() ? predSnap.data() : {};
-
-        let totalPuntos = 0;
-        let partidosJugados = 0;
-
-        PARTIDOS_GRUPOS.forEach(partido => {
-          const rL = resultados[`${partido.id}_local`];
-          const rV = resultados[`${partido.id}_visitante`];
-          const pL = pred[`${partido.id}_local`];
-          const pV = pred[`${partido.id}_visitante`];
-          if (rL !== undefined && pL !== undefined) {
-            totalPuntos += calcularPuntos({ local: pL, visitante: pV }, { local: rL, visitante: rV });
-            partidosJugados++;
-          }
+        // Grupos
+        PG.forEach(p=>{
+          const rL=res[`${p.id}_l`],rV=res[`${p.id}_v`];
+          const pL=pred[`${p.id}_l`],pV=pred[`${p.id}_v`];
+          if(rL!==undefined&&pL!==undefined){pts+=calcPuntos({l:pL,v:pV},{l:rL,v:rV});j++;}
         });
 
-        // Bonus: clasificaciones
-        const clasificaciones = resultados.clasificaciones || {};
-        Object.entries(clasificaciones).forEach(([clave, clasificado]) => {
-          const predClasificado = pred[`clasificacion_${clave}`];
-          if (predClasificado && predClasificado === clasificado) totalPuntos += 4;
+        // Eliminatoria
+        RONDAS.forEach(r=>{
+          (elimD[r.id]||[]).forEach((_,i)=>{
+            const k=`${r.id}_${i}`;
+            const g=resE[k],m=predE[k];
+            if(g&&m===g){pts+=r.id==="fin"?10:4;j++;}
+          });
         });
 
-        return {
-          uid,
-          nombre: miembrosInfo[uid]?.nombre || "Jugador",
-          foto: miembrosInfo[uid]?.foto,
-          puntos: totalPuntos,
-          partidosJugados,
-          esYo: uid === usuario.uid
-        };
+        // Campeón
+        if(campeonReal&&pred.campeon===campeonReal){pts+=10;j++;}
+
+        return{uid,nom:mInfo[uid]?.nom||mInfo[uid]?.nombre||"Jugador",foto:mInfo[uid]?.foto,pts,j,yo:uid===user.uid};
       }));
 
-      tablaData.sort((a, b) => b.puntos - a.puntos || b.partidosJugados - a.partidosJugados);
-      setTabla(tablaData);
-      setCargando(false);
+      rows.sort((a,b)=>b.pts-a.pts||b.j-a.j);
+      setTabla(rows);setCargando(false);
     });
-
     return unsub;
-  }, [ligaActual, usuario.uid]);
+  },[liga,user.uid]);
 
-  if (!ligaActual) return (
-    <div className="empty-state">
-      <div className="empty-estado-icono">📊</div>
-      <div className="empty-estado-titulo">Selecciona una liga</div>
-      <div className="empty-estado-texto">Ve a la sección Ligas y elige una para ver la tabla de posiciones.</div>
-    </div>
-  );
+  if(!liga) return <div className="empty"><div className="ei">📊</div><div className="et">Selecciona una liga</div></div>;
+  if(cargando) return <div className="ldr"><div className="sp"/>Calculando...</div>;
 
-  if (cargando) return <div className="loader"><div className="spinner"></div>Calculando posiciones...</div>;
+  const cls=i=>i===0?"p1":i===1?"p2":i===2?"p3":"";
+  const med=i=>i===0?"🥇":i===1?"🥈":i===2?"🥉":"";
 
-  const clasePos = (i) => i === 0 ? "top1" : i === 1 ? "top2" : i === 2 ? "top3" : "";
-  const medallaPos = (i) => i === 0 ? "🥇" : i === 1 ? "🥈" : i === 2 ? "🥉" : "";
-
-  return (
+  return(
     <div>
-      <div style={{ padding: "12px 16px 12px" }}>
-        <div style={{ fontSize: 18, fontWeight: 800, marginBottom: 4 }}>📊 Tabla de Posiciones</div>
-        <div style={{ fontSize: 13, color: "var(--texto2)" }}>{ligaActual.nombre} · {tabla.length} participantes</div>
-      </div>
-
-      <div className="tabla-posiciones">
-        <div className="tabla-header">
-          <div>#</div><div>Jugador</div><div style={{ textAlign: "center" }}>Partidos</div><div style={{ textAlign: "right" }}>Pts</div>
-        </div>
-        {tabla.map((jugador, i) => (
-          <div key={jugador.uid} className={`tabla-fila ${jugador.esYo ? "yo" : ""}`}>
-            <div className={`tabla-pos ${clasePos(i)}`}>{medallaPos(i) || i + 1}</div>
-            <div className="tabla-usuario">
-              {jugador.esYo ? <span style={{ color: "var(--verde)" }}>👤 Tú</span> : jugador.nombre}
-            </div>
-            <div className="tabla-partidos">{jugador.partidosJugados}</div>
-            <div className="tabla-puntos">{jugador.puntos}</div>
+      <div style={{padding:"12px 16px 10px"}}><div style={{fontSize:17,fontWeight:800,marginBottom:3}}>📊 Tabla de Posiciones</div><div style={{fontSize:12,color:"var(--t2)"}}>{liga.nombre} · {tabla.length} participantes</div></div>
+      <div className="tp">
+        <div className="th"><div>#</div><div>Jugador</div><div style={{textAlign:"center"}}>Partidos</div><div style={{textAlign:"right"}}>Pts</div></div>
+        {tabla.map((j,i)=>(
+          <div key={j.uid} className={`tr${j.yo?" yo":""}`}>
+            <div className={`tpos ${cls(i)}`}>{med(i)||i+1}</div>
+            <div className="tnom">{j.yo?<span style={{color:"var(--v)"}}>👤 Tú</span>:j.nom}</div>
+            <div className="tpar">{j.j}</div>
+            <div className="tpts">{j.pts}</div>
           </div>
         ))}
       </div>
-
-      <div style={{ padding: "16px 16px 0" }}>
+      <div style={{padding:"14px 16px 0"}}>
         <div className="card">
-          <div className="card-titulo">📋 Sistema de puntos</div>
-          <div style={{ fontSize: 13, display: "flex", flexDirection: "column", gap: 6 }}>
-            {[
-              ["🎯 Marcador exacto", "6 pts"],
-              ["✅ Ganador correcto", "3 pts"],
-              ["⚽ Goles del ganador exactos", "2 pts"],
-              ["🏅 Clasificado a siguiente ronda", "4 pts"],
-              ["🏆 Campeón del Mundial", "10 pts"],
-            ].map(([desc, pts]) => (
-              <div key={desc} style={{ display: "flex", justifyContent: "space-between" }}>
-                <span style={{ color: "var(--texto2)" }}>{desc}</span>
-                <span style={{ fontWeight: 800, color: "var(--dorado)" }}>{pts}</span>
-              </div>
+          <div className="ctit">📋 Sistema de puntos</div>
+          <div style={{fontSize:12,display:"flex",flexDirection:"column",gap:5}}>
+            {[["🎯 Marcador exacto","6 pts"],["✅ Ganador correcto","3 pts"],["⚽ Goles del ganador exactos","2 pts"],["➡️ Clasificado a siguiente ronda","4 pts"],["🏆 Campeón del Mundial","10 pts"]].map(([d,p])=>(
+              <div key={d} style={{display:"flex",justifyContent:"space-between"}}><span style={{color:"var(--t2)"}}>{d}</span><span style={{fontWeight:800,color:"var(--d)"}}>{p}</span></div>
             ))}
           </div>
         </div>
@@ -1120,93 +882,207 @@ function PaginaTabla({ usuario, ligaActual, mostrarToast }) {
   );
 }
 
-// ─── PÁGINA ADMIN ─────────────────────────────────────────────────────
-function PaginaAdmin({ usuario, ligaActual, mostrarToast }) {
-  const [grupoActivo, setGrupoActivo] = useState("A");
-  const [resultados, setResultados] = useState({});
-  const [guardando, setGuardando] = useState({});
+// ════════════════════════════════════════════════════════════════
+// ADMIN
+// ════════════════════════════════════════════════════════════════
+function Admin({user,liga,msg}){
+  const [sec,setSec]=useState("grupos");
+  const [res,setRes]=useState({});
+  const [ligaD,setLigaD]=useState(null);
+  const [elimD,setElimD]=useState({});
+  useEffect(()=>{if(!liga)return;return onSnapshot(doc(db,"resultados",liga.id),s=>{if(s.exists())setRes(s.data());});},[liga]);
+  useEffect(()=>{if(!liga)return;return onSnapshot(doc(db,"ligas",liga.id),s=>{if(s.exists())setLigaD({id:s.id,...s.data()});});},[liga]);
+  useEffect(()=>{if(!liga)return;return onSnapshot(doc(db,"eliminatoria",liga.id),s=>{if(s.exists())setElimD(s.data());});},[liga]);
 
-  useEffect(() => {
-    if (!ligaActual) return;
-    const unsub = onSnapshot(doc(db, "resultados", ligaActual.id), (snap) => {
-      if (snap.exists()) setResultados(snap.data());
-    });
-    return unsub;
-  }, [ligaActual]);
+  if(!liga||liga.adminId!==user.uid) return <div className="empty"><div className="ei">🔒</div><div className="et">Solo el administrador</div></div>;
 
-  if (!ligaActual || ligaActual.adminId !== usuario.uid) return (
-    <div className="empty-state">
-      <div className="empty-estado-icono">🔒</div>
-      <div className="empty-estado-titulo">Acceso restringido</div>
-      <div className="empty-estado-texto">Solo el administrador de la liga puede acceder a este panel.</div>
+  return(
+    <div className="ap">
+      <div style={{fontSize:17,fontWeight:800,marginBottom:3}}>⚙️ Panel de Administrador</div>
+      <div style={{fontSize:12,color:"var(--t2)",marginBottom:14}}>Gestiona resultados, eliminatoria y campeón</div>
+      <div className="ftabs" style={{margin:"0 0 14px"}}>
+        <button className={`ftab${sec==="grupos"?" on":""}`} onClick={()=>setSec("grupos")}>⚽ Grupos</button>
+        <button className={`ftab${sec==="elim"?" onm":""}`} style={sec==="elim"?{background:"var(--m)",color:"#fff"}:{}} onClick={()=>setSec("elim")}>🏆 Eliminatoria</button>
+        <button className={`ftab${sec==="camp"?" on":""}`} style={sec==="camp"?{background:"var(--d)",color:"#000"}:{}} onClick={()=>setSec("camp")}>👑 Campeón</button>
+      </div>
+      {sec==="grupos"&&<AdminGrupos liga={liga} res={res} msg={msg}/>}
+      {sec==="elim"&&<AdminElim liga={liga} ligaD={ligaD} elimD={elimD} res={res} msg={msg}/>}
+      {sec==="camp"&&<AdminCampeon liga={liga} res={res} msg={msg}/>}
     </div>
   );
+}
 
-  const guardarResultado = async (partidoId, local, visitante) => {
-    if (local === "" || visitante === "") return;
-    setGuardando(g => ({ ...g, [partidoId]: true }));
-    try {
-      await setDoc(doc(db, "resultados", ligaActual.id), {
-        [`${partidoId}_local`]: parseInt(local),
-        [`${partidoId}_visitante`]: parseInt(visitante),
-        [`${partidoId}_ts`]: new Date().toISOString()
-      }, { merge: true });
-      mostrarToast("✅ Resultado guardado");
-    } catch (e) { mostrarToast("Error al guardar", "error"); }
-    setGuardando(g => ({ ...g, [partidoId]: false }));
+function AdminGrupos({liga,res,msg}){
+  const [grp,setGrp]=useState("A");
+  const guardar=async(pid,l,v)=>{
+    if(l===""||v==="")return;
+    await setDoc(doc(db,"resultados",liga.id),{[`${pid}_l`]:parseInt(l),[`${pid}_v`]:parseInt(v)},{merge:true});
+    msg("✅ Resultado guardado");
+  };
+  return(
+    <>
+      <div className="tabs" style={{paddingLeft:0,paddingRight:0}}>{Object.keys(GRUPOS).map(g=><button key={g} className={`tab${grp===g?" on":""}`} onClick={()=>setGrp(g)}>Grupo {g}</button>)}</div>
+      {PG.filter(p=>p.g===grp).map(p=><AdminPCard key={p.id} p={p} rLA={res[`${p.id}_l`]} rVA={res[`${p.id}_v`]} onSave={(l,v)=>guardar(p.id,l,v)}/>)}
+    </>
+  );
+}
+
+function AdminPCard({p,rLA,rVA,onSave}){
+  const [l,setL]=useState(rLA!==undefined?String(rLA):"");
+  const [v,setV]=useState(rVA!==undefined?String(rVA):"");
+  const [busy,setBusy]=useState(false);
+  return(
+    <div className="card" style={{marginLeft:0,marginRight:0}}>
+      <div style={{fontSize:11,color:"var(--t2)",marginBottom:7}}>{new Date(p.f).toLocaleDateString("es-MX",{day:"numeric",month:"short",hour:"2-digit",minute:"2-digit"})}</div>
+      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:9}}>
+        <div style={{fontWeight:800,fontSize:13}}>{F(p.l)} {p.l}</div>
+        <div style={{color:"var(--t2)",fontWeight:800}}>vs</div>
+        <div style={{fontWeight:800,fontSize:13}}>{p.v} {F(p.v)}</div>
+      </div>
+      <div className="rf">
+        <input type="number" min="0" max="99" placeholder="0" value={l} onChange={e=>setL(e.target.value.slice(0,2))}/>
+        <div className="rg">-</div>
+        <input type="number" min="0" max="99" placeholder="0" value={v} onChange={e=>setV(e.target.value.slice(0,2))}/>
+      </div>
+      <button className={`btn${rLA!==undefined?" bs":" bp"} bw`} style={{fontSize:13}} onClick={async()=>{setBusy(true);await onSave(l,v);setBusy(false);}} disabled={l===""||v===""||busy}>
+        {busy?"Guardando...":rLA!==undefined?"✏️ Actualizar":"✅ Guardar resultado"}
+      </button>
+      {rLA!==undefined&&<div style={{textAlign:"center",marginTop:5,fontSize:11,color:"var(--v)"}}>Resultado actual: {rLA} - {rVA}</div>}
+    </div>
+  );
+}
+
+function AdminElim({liga,ligaD,elimD,res,msg}){
+  const rActivas=ligaD?.rondasActivas||[];
+  const [vista,setVista]=useState(null);
+  const [nuevaR,setNuevaR]=useState(null);
+  const [nPartidos,setNPartidos]=useState([]);
+
+  const activar=async(rid)=>{
+    if(rActivas.includes(rid))return;
+    await setDoc(doc(db,"ligas",liga.id),{rondasActivas:arrayUnion(rid)},{merge:true});
+    const info=RONDAS.find(r=>r.id===rid);
+    setNuevaR(rid);
+    setNPartidos(Array.from({length:info.partidos},()=>({equipo1:"",equipo2:""})));
+    msg(`✅ "${info.nombre}" activada`);
   };
 
-  const partidosGrupo = PARTIDOS_GRUPOS.filter(p => p.grupo === grupoActivo);
+  const guardarPartidos=async(rid)=>{
+    if(nPartidos.some(p=>!p.equipo1||!p.equipo2)){msg("Completa todos los equipos","err");return;}
+    await setDoc(doc(db,"eliminatoria",liga.id),{[rid]:nPartidos},{merge:true});
+    setNuevaR(null);msg("✅ Enfrentamientos guardados");
+  };
 
-  return (
-    <div className="admin-panel">
-      <div style={{ fontSize: 18, fontWeight: 800, marginBottom: 4 }}>⚙️ Panel de Administrador</div>
-      <div style={{ fontSize: 13, color: "var(--texto2)", marginBottom: 16 }}>Ingresa los resultados de cada partido</div>
+  const guardarGanador=async(rid,i,eq)=>{
+    await setDoc(doc(db,"resultados",liga.id),{eliminatoria:{[`${rid}_${i}`]:eq}},{merge:true});
+    msg(`✅ Ganador: ${eq}`);
+  };
 
-      <div className="tabs">
-        {Object.keys(GRUPOS).map(g => (
-          <button key={g} className={`tab ${grupoActivo === g ? "activo" : ""}`} onClick={() => setGrupoActivo(g)}>
-            Grupo {g}
-          </button>
-        ))}
-      </div>
-
-      {partidosGrupo.map(partido => {
-        const [l, setL] = useState(resultados[`${partido.id}_local`] !== undefined ? String(resultados[`${partido.id}_local`]) : "");
-        const [v, setV] = useState(resultados[`${partido.id}_visitante`] !== undefined ? String(resultados[`${partido.id}_visitante`]) : "");
-        const tieneRes = resultados[`${partido.id}_local`] !== undefined;
-
-        return (
-          <div key={partido.id} className="card" style={{ marginLeft: 0, marginRight: 0 }}>
-            <div style={{ fontSize: 12, color: "var(--texto2)", marginBottom: 8 }}>
-              📅 {new Date(partido.fecha).toLocaleDateString("es-MX", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" })}
-            </div>
-            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
-              <div style={{ fontWeight: 800, fontSize: 14 }}>{flag(partido.local)} {partido.local}</div>
-              <div style={{ fontWeight: 800, color: "var(--texto2)" }}>vs</div>
-              <div style={{ fontWeight: 800, fontSize: 14 }}>{partido.visitante} {flag(partido.visitante)}</div>
-            </div>
-            <div className="resultado-form">
-              <input type="number" min="0" max="99" placeholder="0" value={l} onChange={e => setL(e.target.value.slice(0, 2))} />
-              <div className="resultado-guion">-</div>
-              <input type="number" min="0" max="99" placeholder="0" value={v} onChange={e => setV(e.target.value.slice(0, 2))} />
-            </div>
-            <button
-              className={`btn ${tieneRes ? "btn-secundario" : "btn-primary"} btn-bloque`}
-              onClick={() => guardarResultado(partido.id, l, v)}
-              disabled={l === "" || v === "" || guardando[partido.id]}
-              style={{ fontSize: 14 }}
-            >
-              {guardando[partido.id] ? "Guardando..." : tieneRes ? "✏️ Actualizar resultado" : "✅ Guardar resultado"}
-            </button>
-            {tieneRes && (
-              <div style={{ textAlign: "center", marginTop: 6, fontSize: 12, color: "var(--verde)" }}>
-                Resultado actual: {resultados[`${partido.id}_local`]} - {resultados[`${partido.id}_visitante`]}
+  return(
+    <div>
+      <div style={{fontSize:12,color:"var(--t2)",marginBottom:14,lineHeight:1.6}}>Activa cada ronda cuando terminen los partidos anteriores y define los enfrentamientos.</div>
+      {RONDAS.map(r=>{
+        const activa=rActivas.includes(r.id);
+        const partidos=elimD[r.id]||[];
+        return(
+          <div key={r.id} className="arc">
+            <h3>{r.nombre}</h3>
+            <p>{r.partidos} partido{r.partidos>1?"s":""} · {r.pts} pts por ganador correcto{r.id==="fin"?" (o 10 pts por campeón)":""}</p>
+            {!activa?(
+              <button className="btn bm bw" onClick={()=>activar(r.id)}>🔓 Activar {r.nombre}</button>
+            ):(
+              <div>
+                <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:10}}>
+                  <span style={{color:"var(--v)",fontWeight:800,fontSize:13}}>✅ Ronda activa</span>
+                  <button className="btn bs" style={{fontSize:11,padding:"5px 10px"}} onClick={()=>setVista(vista===r.id?null:r.id)}>
+                    {vista===r.id?"Cerrar":"Ver partidos"}
+                  </button>
+                </div>
+                {nuevaR===r.id&&(
+                  <div>
+                    <div style={{fontSize:12,fontWeight:700,marginBottom:8,color:"var(--d)"}}>Define los {r.partidos} enfrentamientos:</div>
+                    {nPartidos.map((pt,i)=>(
+                      <div key={i} style={{marginBottom:10,background:"var(--f2)",borderRadius:11,padding:11}}>
+                        <div style={{fontSize:11,color:"var(--t2)",marginBottom:7}}>Partido {i+1}</div>
+                        <div style={{display:"grid",gridTemplateColumns:"1fr auto 1fr",gap:7,alignItems:"center"}}>
+                          <select className="sel2" value={pt.equipo1} onChange={e=>{const a=[...nPartidos];a[i]={...a[i],equipo1:e.target.value};setNPartidos(a);}}>
+                            <option value="">Equipo 1...</option>
+                            {TODOS_EQUIPOS.map(eq=><option key={eq} value={eq}>{F(eq)} {eq}</option>)}
+                          </select>
+                          <div style={{fontWeight:900,color:"var(--t2)",fontSize:12}}>vs</div>
+                          <select className="sel2" value={pt.equipo2} onChange={e=>{const a=[...nPartidos];a[i]={...a[i],equipo2:e.target.value};setNPartidos(a);}}>
+                            <option value="">Equipo 2...</option>
+                            {TODOS_EQUIPOS.map(eq=><option key={eq} value={eq}>{F(eq)} {eq}</option>)}
+                          </select>
+                        </div>
+                      </div>
+                    ))}
+                    <button className="btn bp bw" onClick={()=>guardarPartidos(r.id)}>✅ Guardar enfrentamientos</button>
+                  </div>
+                )}
+                {vista===r.id&&partidos.map((pt,i)=>{
+                  const gan=res?.eliminatoria?.[`${r.id}_${i}`];
+                  return(
+                    <div key={i} style={{background:"var(--f2)",borderRadius:11,padding:11,marginBottom:8}}>
+                      <div style={{fontSize:11,color:"var(--t2)",marginBottom:7}}>Partido {i+1}</div>
+                      <div style={{fontSize:13,fontWeight:800,marginBottom:9,textAlign:"center"}}>{F(pt.equipo1)} {pt.equipo1} <span style={{color:"var(--t2)"}}>vs</span> {pt.equipo2} {F(pt.equipo2)}</div>
+                      {gan?<div style={{textAlign:"center",color:"var(--d)",fontWeight:800,fontSize:13}}>🏆 Ganador: {gan}</div>:(
+                        <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:7}}>
+                          <button className="btn bs" style={{fontSize:12,padding:"9px 7px"}} onClick={()=>guardarGanador(r.id,i,pt.equipo1)}>{F(pt.equipo1)} {pt.equipo1} ganó</button>
+                          <button className="btn bs" style={{fontSize:12,padding:"9px 7px"}} onClick={()=>guardarGanador(r.id,i,pt.equipo2)}>{F(pt.equipo2)} {pt.equipo2} ganó</button>
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
               </div>
             )}
           </div>
         );
       })}
+    </div>
+  );
+}
+
+function AdminCampeon({liga,res,msg}){
+  const [sel,setSel]=useState("");
+  const campeonActual=res?.campeon||null;
+
+  const guardar=async()=>{
+    if(!sel){msg("Selecciona un equipo","err");return;}
+    await setDoc(doc(db,"resultados",liga.id),{campeon:sel},{merge:true});
+    msg(`🏆 Campeón registrado: ${sel}`);
+  };
+
+  return(
+    <div>
+      <div style={{fontSize:13,color:"var(--t2)",marginBottom:14,lineHeight:1.6}}>Registra al campeón del Mundial cuando termine la final. Esto suma 10 pts automáticamente a quienes lo predijeron correctamente.</div>
+      {campeonActual?(
+        <div style={{background:"linear-gradient(135deg,#1a1000,#2a2000)",border:"2px solid var(--d)",borderRadius:14,padding:20,textAlign:"center",marginBottom:14}}>
+          <div style={{fontSize:44,marginBottom:8}}>{F(campeonActual)}</div>
+          <div style={{fontFamily:"'Bebas Neue'",fontSize:28,color:"var(--d)"}}>{campeonActual}</div>
+          <div style={{fontSize:13,color:"var(--t2)",marginTop:6}}>🏆 Campeón del Mundial 2026 registrado</div>
+        </div>
+      ):(
+        <div className="card" style={{marginLeft:0,marginRight:0}}>
+          <div className="ctit">Selecciona al campeón</div>
+          <select className="sel2" value={sel} onChange={e=>setSel(e.target.value)} style={{marginBottom:12}}>
+            <option value="">Elige el campeón...</option>
+            {TODOS_EQUIPOS.map(eq=><option key={eq} value={eq}>{F(eq)} {eq}</option>)}
+          </select>
+          <button className="btn bd bw" onClick={guardar} disabled={!sel}>🏆 Registrar campeón</button>
+        </div>
+      )}
+      {campeonActual&&(
+        <div className="card" style={{marginLeft:0,marginRight:0}}>
+          <div className="ctit">¿Cambiar campeón?</div>
+          <select className="sel2" value={sel} onChange={e=>setSel(e.target.value)} style={{marginBottom:10}}>
+            <option value="">Selecciona otro equipo...</option>
+            {TODOS_EQUIPOS.map(eq=><option key={eq} value={eq}>{F(eq)} {eq}</option>)}
+          </select>
+          <button className="btn bs bw" onClick={guardar} disabled={!sel}>✏️ Actualizar campeón</button>
+        </div>
+      )}
     </div>
   );
 }
