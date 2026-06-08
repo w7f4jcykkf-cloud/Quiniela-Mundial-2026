@@ -1,8 +1,8 @@
 import { useState, useEffect, useCallback } from "react";
 import { initializeApp } from "firebase/app";
 import {
-  getFirestore, doc, setDoc, getDoc, collection,
-  query, where, onSnapshot, serverTimestamp, getDocs, arrayUnion
+  getFirestore, doc, setDoc, getDoc, deleteDoc, collection,
+  query, where, onSnapshot, serverTimestamp, getDocs, arrayUnion, writeBatch
 } from "firebase/firestore";
 import {
   getAuth, GoogleAuthProvider, signInWithPopup, signOut, onAuthStateChanged,
@@ -31,7 +31,7 @@ const gp   = new GoogleAuthProvider();
 // SUPER ADMIN — único que puede crear ligas
 // Reemplaza con tu UID de Firebase Authentication
 // ════════════════════════════════════════════════════════
-const SUPER_ADMIN_UID = "pvWj7wgncfPJIThwFlxaE1B8zS33";
+const SUPER_ADMIN_UID = "TU_UID_AQUI";
 
 // ════════════════════════════════════════════════════════
 // GRUPOS OFICIALES MUNDIAL 2026
@@ -390,7 +390,7 @@ export default function App(){
       {page==="ligas"&&<Ligas user={user} liga={liga} onSel={l=>{setLiga(l);setPage("partidos");}} onCrear={()=>setModal("crear")} onUnir={()=>setModal("unir")} onLogout={logout} esSA={esSA}/>}
       {page==="partidos"&&<Partidos user={user} liga={liga} msg={msg}/>}
       {page==="tabla"&&<Tabla user={user} liga={liga}/>}
-      {page==="admin"&&<Admin user={user} liga={liga} msg={msg}/>}
+      {page==="admin"&&<Admin user={user} liga={liga} msg={msg} onLigaEliminada={()=>{setLiga(null);setPage("ligas");}}/>}
       <nav className="nav">
         <button className={`nb${page==="ligas"?" on":""}`} onClick={()=>setPage("ligas")}><span>🏆</span><span>Ligas</span></button>
         <button className={`nb${page==="partidos"?" on":""}`} onClick={()=>{if(!liga){msg("Selecciona una liga primero","err");return;}setPage("partidos");}}><span>⚽</span><span>Partidos</span></button>
@@ -753,7 +753,7 @@ function Tabla({user,liga}){
 // ════════════════════════════════════════════════════════
 // ADMIN
 // ════════════════════════════════════════════════════════
-function Admin({user,liga,msg}){
+function Admin({user,liga,msg,onLigaEliminada}){
   const[sec,setSec]=useState("grupos");
   const[res,setRes]=useState({});
   const[ligaD,setLigaD]=useState(null);
@@ -766,14 +766,21 @@ function Admin({user,liga,msg}){
     <div className="ap">
       <div style={{fontSize:17,fontWeight:800,marginBottom:3}}>⚙️ Panel de Administrador</div>
       <div style={{fontSize:12,color:"var(--t2)",marginBottom:14}}>Gestiona resultados, eliminatoria y campeón</div>
-      <div className="ftabs" style={{margin:"0 0 14px"}}>
-        <button className={`ftab${sec==="grupos"?" on":""}`} onClick={()=>setSec("grupos")}>⚽ Grupos</button>
-        <button className={`ftab${sec==="elim"?" onm":""}`} style={sec==="elim"?{background:"var(--m)",color:"#fff"}:{}} onClick={()=>setSec("elim")}>🏆 Eliminatoria</button>
-        <button className={`ftab${sec==="camp"?" ond":""}`} style={sec==="camp"?{background:"var(--d)",color:"#000"}:{}} onClick={()=>setSec("camp")}>👑 Campeón</button>
+      <div style={{display:"flex",gap:6,marginBottom:14,flexWrap:"wrap"}}>
+        {[["grupos","⚽ Grupos","on"],["elim","🏆 Elim.","onm"],["camp","👑 Campeón","ond"],["liga","👥 Liga","onr"]].map(([id,label,cls])=>(
+          <button key={id} onClick={()=>setSec(id)}
+            style={{padding:"9px 14px",borderRadius:20,border:"1px solid var(--b)",fontFamily:"Nunito",fontSize:12,fontWeight:800,cursor:"pointer",
+              background:sec===id?(id==="elim"?"var(--m)":id==="camp"?"var(--d)":id==="liga"?"var(--r)":"var(--v)"):"var(--f2)",
+              color:sec===id?(id==="grupos"||id==="liga"?"#fff":"#000"):"var(--t2)",
+              borderColor:sec===id?(id==="elim"?"var(--m)":id==="camp"?"var(--d)":id==="liga"?"var(--r)":"var(--v)"):"var(--b)"}}>
+            {label}
+          </button>
+        ))}
       </div>
       {sec==="grupos"&&<AdminGrupos liga={liga} res={res} msg={msg}/>}
       {sec==="elim"&&<AdminElim liga={liga} ligaD={ligaD} elimD={elimD} res={res} msg={msg}/>}
       {sec==="camp"&&<AdminCamp liga={liga} res={res} msg={msg}/>}
+      {sec==="liga"&&<AdminLiga liga={liga} msg={msg} onLigaEliminada={onLigaEliminada}/>}
     </div>
   );
 }
@@ -899,6 +906,108 @@ function AdminCamp({liga,res,msg}){
           <option value="">Elige el campeón...</option>{TODOS.map(eq=><option key={eq} value={eq}>{F(eq)} {eq}</option>)}
         </select>
         <button className={`btn${actual?" bs":" bd"} bw`} onClick={guardar} disabled={!sel}>{actual?"✏️ Actualizar campeón":"🏆 Registrar campeón"}</button>
+      </div>
+    </div>
+  );
+}
+
+// ════════════════════════════════════════════════════════
+// ADMIN — GESTIÓN DE LIGA (eliminar liga, eliminar miembro)
+// ════════════════════════════════════════════════════════
+function AdminLiga({liga,msg,onLigaEliminada}){
+  const[miembros,setMiembros]=useState([]);
+  const[confirmarElim,setConfirmarElim]=useState(false);
+  const[confirmTexto,setConfirmTexto]=useState("");
+  const[busy,setBusy]=useState(false);
+
+  useEffect(()=>{
+    if(!liga)return;
+    return onSnapshot(doc(db,"ligas",liga.id),s=>{
+      if(s.exists()){
+        const d=s.data();
+        const info=d.miembrosInfo||{};
+        const lista=(d.miembros||[]).map(uid=>({uid,nombre:info[uid]?.nombre||"Jugador",foto:info[uid]?.foto||null,esAdmin:uid===liga.adminId}));
+        setMiembros(lista);
+      }
+    });
+  },[liga]);
+
+  const eliminarMiembro=async(uid,nombre)=>{
+    if(uid===liga.adminId){msg("No puedes eliminarte a ti mismo como admin","err");return;}
+    if(!window.confirm(`¿Eliminar a ${nombre} de la liga?`))return;
+    setBusy(true);
+    try{
+      const ligaRef=doc(db,"ligas",liga.id);
+      const ligaSnap=await getDoc(ligaRef);
+      const data=ligaSnap.data();
+      const nuevosMiembros=(data.miembros||[]).filter(u=>u!==uid);
+      const nuevaInfo={...data.miembrosInfo};
+      delete nuevaInfo[uid];
+      await setDoc(ligaRef,{miembros:nuevosMiembros,miembrosInfo:nuevaInfo},{merge:true});
+      msg(`✅ ${nombre} eliminado de la liga`);
+    }catch(e){msg("Error al eliminar participante","err");}
+    setBusy(false);
+  };
+
+  const eliminarLiga=async()=>{
+    if(confirmTexto!=="ELIMINAR"){msg("Escribe ELIMINAR para confirmar","err");return;}
+    setBusy(true);
+    try{
+      // Borrar predicciones de todos los miembros
+      const batch=writeBatch(db);
+      miembros.forEach(m=>{
+        batch.delete(doc(db,"predicciones",`${liga.id}_${m.uid}`));
+      });
+      // Borrar resultados y eliminatoria
+      batch.delete(doc(db,"resultados",liga.id));
+      batch.delete(doc(db,"eliminatoria",liga.id));
+      // Borrar la liga
+      batch.delete(doc(db,"ligas",liga.id));
+      await batch.commit();
+      msg("Liga eliminada");
+      onLigaEliminada();
+    }catch(e){msg("Error al eliminar la liga","err");}
+    setBusy(false);
+  };
+
+  return(
+    <div>
+      {/* PARTICIPANTES */}
+      <div style={{fontSize:14,fontWeight:800,marginBottom:10}}>👥 Participantes ({miembros.length})</div>
+      {miembros.map(m=>(
+        <div key={m.uid} style={{display:"flex",alignItems:"center",gap:10,padding:"10px 12px",background:"var(--f2)",borderRadius:12,marginBottom:8,border:"1px solid var(--b)"}}>
+          {m.foto?<img src={m.foto} style={{width:36,height:36,borderRadius:"50%",objectFit:"cover"}} alt=""/>
+            :<div style={{width:36,height:36,borderRadius:"50%",background:"var(--v)",display:"flex",alignItems:"center",justifyContent:"center",fontWeight:900,color:"#000"}}>{m.nombre[0].toUpperCase()}</div>}
+          <div style={{flex:1}}>
+            <div style={{fontWeight:800,fontSize:14}}>{m.nombre}</div>
+            {m.esAdmin&&<div style={{fontSize:11,color:"var(--d)"}}>⚙️ Administrador</div>}
+          </div>
+          {!m.esAdmin&&(
+            <button className="btn br2" style={{fontSize:12,padding:"6px 10px"}} onClick={()=>eliminarMiembro(m.uid,m.nombre)} disabled={busy}>
+              Quitar
+            </button>
+          )}
+        </div>
+      ))}
+
+      {/* ZONA DE PELIGRO */}
+      <div style={{marginTop:24,background:"#1f0a0a",border:"2px solid var(--r)",borderRadius:14,padding:16}}>
+        <div style={{fontSize:13,fontWeight:900,color:"var(--r)",marginBottom:6}}>⚠️ Zona de peligro</div>
+        <div style={{fontSize:12,color:"var(--t2)",marginBottom:12,lineHeight:1.6}}>
+          Eliminar la liga borrará todos los datos permanentemente: predicciones, resultados y participantes. Esta acción no se puede deshacer.
+        </div>
+        {!confirmarElim?(
+          <button className="btn br2 bw" onClick={()=>setConfirmarElim(true)}>🗑️ Eliminar esta liga</button>
+        ):(
+          <div>
+            <div style={{fontSize:12,color:"var(--r)",marginBottom:8,fontWeight:700}}>Escribe ELIMINAR para confirmar:</div>
+            <input className="fi2" placeholder="ELIMINAR" value={confirmTexto} onChange={e=>setConfirmTexto(e.target.value.toUpperCase())} style={{marginBottom:8,borderColor:"var(--r)",textAlign:"center",letterSpacing:2,fontWeight:900}}/>
+            <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8}}>
+              <button className="btn bs bw" onClick={()=>{setConfirmarElim(false);setConfirmTexto("");}}>Cancelar</button>
+              <button className="btn br2 bw" onClick={eliminarLiga} disabled={confirmTexto!=="ELIMINAR"||busy}>{busy?"Eliminando...":"🗑️ Confirmar"}</button>
+            </div>
+          </div>
+        )}
       </div>
     </div>
   );
