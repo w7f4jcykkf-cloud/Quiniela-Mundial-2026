@@ -800,17 +800,29 @@ function APC({p,rLA,rVA,onSave}){
   const[l,setL]=useState(rLA!==undefined?String(rLA):"");
   const[v,setV]=useState(rVA!==undefined?String(rVA):"");
   const[busy,setBusy]=useState(false);
+  const partidoIniciado=new Date()>=new Date(p.f);
+  const fecha=new Date(p.f).toLocaleDateString("es-MX",{weekday:"short",day:"numeric",month:"short",hour:"2-digit",minute:"2-digit"});
   return(
     <div className="card" style={{marginLeft:0,marginRight:0}}>
-      <div style={{fontSize:11,color:"var(--t2)",marginBottom:7}}>{new Date(p.f).toLocaleDateString("es-MX",{day:"numeric",month:"short",hour:"2-digit",minute:"2-digit"})}</div>
+      <div style={{fontSize:11,color:"var(--t2)",marginBottom:7}}>📅 {fecha}</div>
       <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:9}}>
         <div style={{fontWeight:800,fontSize:13}}>{F(p.l)} {p.l}</div>
         <div style={{color:"var(--t2)",fontWeight:800}}>vs</div>
         <div style={{fontWeight:800,fontSize:13}}>{p.v} {F(p.v)}</div>
       </div>
-      <div className="rf"><input type="number" min="0" max="99" placeholder="0" value={l} onChange={e=>setL(e.target.value.slice(0,2))}/><div className="rg">-</div><input type="number" min="0" max="99" placeholder="0" value={v} onChange={e=>setV(e.target.value.slice(0,2))}/></div>
-      <button className={`btn${rLA!==undefined?" bs":" bp"} bw`} style={{fontSize:13}} onClick={async()=>{setBusy(true);await onSave(l,v);setBusy(false);}} disabled={l===""||v===""||busy}>{busy?"Guardando...":rLA!==undefined?"✏️ Actualizar":"✅ Guardar resultado"}</button>
-      {rLA!==undefined&&<div style={{textAlign:"center",marginTop:5,fontSize:11,color:"var(--v)"}}>Resultado actual: {rLA} - {rVA}</div>}
+      {!partidoIniciado?(
+        <div style={{textAlign:"center",padding:"12px",background:"var(--f2)",borderRadius:11,fontSize:12,color:"var(--t2)",fontWeight:700}}>
+          ⏳ El partido aún no ha iniciado — podrás ingresar el resultado cuando empiece
+        </div>
+      ):(
+        <>
+          <div className="rf"><input type="number" min="0" max="99" placeholder="0" value={l} onChange={e=>setL(e.target.value.slice(0,2))}/><div className="rg">-</div><input type="number" min="0" max="99" placeholder="0" value={v} onChange={e=>setV(e.target.value.slice(0,2))}/></div>
+          <button className={`btn${rLA!==undefined?" bs":" bp"} bw`} style={{fontSize:13}} onClick={async()=>{setBusy(true);await onSave(l,v);setBusy(false);}} disabled={l===""||v===""||parseInt(l)<0||parseInt(v)<0||busy}>
+            {busy?"Guardando...":rLA!==undefined?"✏️ Actualizar resultado":"✅ Guardar resultado"}
+          </button>
+          {rLA!==undefined&&<div style={{textAlign:"center",marginTop:5,fontSize:11,color:"var(--v)"}}>Resultado actual: {rLA} - {rVA}</div>}
+        </>
+      )}
     </div>
   );
 }
