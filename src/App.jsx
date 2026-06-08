@@ -31,7 +31,7 @@ const gp   = new GoogleAuthProvider();
 // SUPER ADMIN — único que puede crear ligas
 // Reemplaza con tu UID de Firebase Authentication
 // ════════════════════════════════════════════════════════
-const SUPER_ADMIN_UID = "TU_UID_AQUI";
+const SUPER_ADMIN_UID = "pvWj7wgncfPJIThwFlxaE1B8zS33";
 
 // ════════════════════════════════════════════════════════
 // GRUPOS OFICIALES MUNDIAL 2026
